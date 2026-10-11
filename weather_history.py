@@ -18,6 +18,7 @@ from weather_server import (
 )
 
 DEFAULT_AMBIENT = Path(__file__).resolve().parent / "data" / "ambient"
+DOTENV = Path(__file__).resolve().parent / ".env"
 
 BASE_URL = "https://api.ambientweather.net"
 LIMIT = 288
@@ -27,6 +28,19 @@ LOOKBACK = timedelta(days=3600)
 MAX_ATTEMPTS = 8
 MAX_BACKOFF_SECONDS = 60
 _ISO = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def load_dotenv(path):
+    try:
+        with open(path) as stream:
+            for raw in stream:
+                line = raw.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    except FileNotFoundError:
+        return
 
 
 def utc_now():
@@ -299,6 +313,7 @@ def collect(history_dir, client, mac, now, sleep):
 
 
 def run(history_dir, now=utc_now, sleep=time.sleep):
+    load_dotenv(DOTENV)
     api_key = os.environ.get("AMBIENT_API_KEY", "")
     application_key = os.environ.get("AMBIENT_APPLICATION_KEY", "")
     if not api_key or not application_key:
@@ -345,6 +360,22 @@ def _lines(history_dir, text):
 
 
 def self_check():
+    key = "DOTENV_SELF_CHECK"
+    os.environ.pop(key, None)
+    handle, path = tempfile.mkstemp()
+    os.close(handle)
+    with open(path, "w") as stream:
+        stream.write(f"{key}=from-file\n")
+    try:
+        load_dotenv(path)
+        assert os.environ.get(key) == "from-file"
+        os.environ[key] = "already"
+        load_dotenv(path)
+        assert os.environ[key] == "already"
+    finally:
+        os.remove(path)
+        os.environ.pop(key, None)
+
     slept = []
 
     def sleep(seconds):
