@@ -2,11 +2,13 @@
 
 import json
 import os
+import re
 import sys
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import requests
 
@@ -203,6 +205,34 @@ class AmbientClient:
         return body
 
 
+_SECRET_QUERY = {"apikey", "applicationkey"}
+_SECRET_TEXT = re.compile(r"(?i)(apiKey|applicationKey)=[^&\s\"']*")
+
+
+def failure_detail(exc):
+    """Status, path, and non-secret query fields. The keys stay out of the log."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return type(exc).__name__
+    parts = urlsplit(getattr(response, "url", "") or "")
+    query = parse_qs(parts.query, keep_blank_values=True)
+    extra = [
+        f"{key}={values[0]}"
+        for key, values in query.items()
+        if key.lower() not in _SECRET_QUERY and values
+    ]
+    body = " ".join((getattr(response, "text", "") or "").split())
+    body = _SECRET_TEXT.sub(r"\1=REDACTED", body)
+    if len(body) > 300:
+        body = body[:300] + "..."
+    detail = f"HTTP {response.status_code} {response.reason} {parts.path}"
+    if extra:
+        detail = f"{detail} {' '.join(extra)}"
+    if body:
+        detail = f"{detail}: {body}"
+    return detail
+
+
 def call_with_retry(operation, sleep):
     """Eight tries, then a non-zero exit. Backoff is 1, 2, 4, ... seconds, cap 60."""
     delay = 1
@@ -210,8 +240,7 @@ def call_with_retry(operation, sleep):
         try:
             result = operation()
         except Exception as exc:
-            # The exception text includes the request URL, and the URL contains the keys.
-            print(f"attempt {attempt} failed: {type(exc).__name__}", flush=True)
+            print(f"attempt {attempt} failed: {failure_detail(exc)}", flush=True)
             if attempt == MAX_ATTEMPTS:
                 raise SystemExit(1)
             sleep(delay)
@@ -380,6 +409,26 @@ def self_check():
 
     def sleep(seconds):
         slept.append(seconds)
+
+    class _Response:
+        status_code = 404
+        reason = "Not Found"
+        url = (
+            "https://api.ambientweather.net/v1/devices/AA:BB"
+            "?apiKey=secret&applicationKey=secret&endDate=1&limit=288"
+        )
+        text = "no device apiKey=secret"
+
+    class _HTTPError(Exception):
+        response = _Response()
+
+    detail = failure_detail(_HTTPError())
+    assert detail == (
+        "HTTP 404 Not Found /v1/devices/AA:BB endDate=1 limit=288: "
+        "no device apiKey=REDACTED"
+    )
+    assert "secret" not in detail
+    assert failure_detail(RuntimeError("nope")) == "RuntimeError"
 
     assert DEFAULT_AMBIENT == Path(__file__).resolve().parent / "data" / "ambient"
 
