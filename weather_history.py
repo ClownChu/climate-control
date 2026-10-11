@@ -26,7 +26,7 @@ BASE_URL = "https://api.ambientweather.net"
 LIMIT = 288
 WINDOW = timedelta(hours=6)
 NEAR = timedelta(minutes=5)
-LOOKBACK = timedelta(days=3600)
+LOOKBACK = timedelta(days=3650)
 MAX_ATTEMPTS = 8
 MAX_BACKOFF_SECONDS = 60
 _ISO = "%Y-%m-%dT%H:%M:%SZ"
@@ -198,7 +198,7 @@ class AmbientClient:
         return body
 
     def history(self, mac, end):
-        params = {"endDate": str(_to_ms(end)), "limit": str(LIMIT)}
+        params = {"endDate": _iso(end), "limit": str(LIMIT)}
         body = self._get("/v1/devices/" + mac, params)
         if not isinstance(body, list):
             raise RuntimeError("history was not a list")
@@ -242,7 +242,7 @@ def call_with_retry(operation, sleep):
         except Exception as exc:
             print(f"attempt {attempt} failed: {failure_detail(exc)}", flush=True)
             if attempt == MAX_ATTEMPTS:
-                raise SystemExit(1)
+                return None
             sleep(delay)
             delay = min(delay * 2, MAX_BACKOFF_SECONDS)
             continue
@@ -345,6 +345,7 @@ def run(history_dir, now=utc_now, sleep=time.sleep):
     load_dotenv(DOTENV)
     api_key = os.environ.get("AMBIENT_API_KEY", "")
     application_key = os.environ.get("AMBIENT_APPLICATION_KEY", "")
+
     if not api_key or not application_key:
         print(
             "AMBIENT_API_KEY and AMBIENT_APPLICATION_KEY are required", flush=True
@@ -429,6 +430,18 @@ def self_check():
     )
     assert "secret" not in detail
     assert failure_detail(RuntimeError("nope")) == "RuntimeError"
+
+    sent = {}
+    probe = AmbientClient("k", "a")
+
+    def fake_get(path, params):
+        sent["path"] = path
+        sent["params"] = params
+        return []
+
+    probe._get = fake_get
+    probe.history("AA:BB", _at("2024-06-25T04:15:00Z"))
+    assert sent["params"]["endDate"] == "2024-06-25T04:15:00Z"
 
     assert DEFAULT_AMBIENT == Path(__file__).resolve().parent / "data" / "ambient"
 
