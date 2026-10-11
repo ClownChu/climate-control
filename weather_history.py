@@ -23,7 +23,7 @@ BASE_URL = "https://api.ambientweather.net"
 LIMIT = 288
 WINDOW = timedelta(hours=6)
 NEAR = timedelta(minutes=5)
-LOOKBACK = timedelta(days=365)
+LOOKBACK = timedelta(days=3600)
 MAX_ATTEMPTS = 8
 MAX_BACKOFF_SECONDS = 60
 _ISO = "%Y-%m-%dT%H:%M:%SZ"

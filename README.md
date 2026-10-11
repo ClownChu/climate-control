@@ -28,6 +28,26 @@
             <code>python3 ./run.py <email> <password> <profile> <device-id></code>
         </li>
     </ul>
+</div>
+
+<hr>
+
+<h2 align="center" id="weather">Weather dashboard</h2>
+<div>
+    <p>Station uploads are stored as UTC 12-hour JSONL buckets under <code>data/history</code>. Ambient history backfill uses <code>data/ambient</code>. The dashboard charts both.</p>
+    <ul>
+        <li>
+            <code>python3 weather_server.py</code> listens on port 8099. Open <code>http://127.0.0.1:8099/dashboard</code>. Pass a port and a history directory to override the defaults.
+        </li>
+        <li>
+            <code>python3 weather_history.py</code> backfills Ambient history into <code>data/ambient</code>. Set <code>AMBIENT_API_KEY</code> and <code>AMBIENT_APPLICATION_KEY</code> first. <code>AMBIENT_MAC</code> picks one station when the account has several.
+        </li>
+        <li>
+            <code>python3 weather_server.py --self-check</code> and <code>python3 weather_history.py --self-check</code> exercise the collectors without calling Ambient.
+        </li>
+    </ul>
+</div>
+
 <hr>
 
 <h2 align="center" id="about-kita">About Kita</h2>

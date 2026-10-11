@@ -1,17 +1,34 @@
 """Record Ambient Weather GET uploads into UTC 12-hour JSONL buckets."""
 
+import io
 import json
 import os
 import re
 import sys
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 DEFAULT_PORT = 8099
 DEFAULT_HISTORY = Path(__file__).resolve().parent / "data" / "history"
+DASHBOARD_PAGE = Path(__file__).resolve().parent / "dashboard.html"
+DASHBOARD_SCRIPT = Path(__file__).resolve().parent / "dashboard.js"
+_CHART_FIELDS = (
+    "tempf",
+    "tempinf",
+    "humidity",
+    "humidityin",
+    "windspeedmph",
+    "windgustmph",
+    "hourlyrainin",
+    "dailyrainin",
+    "baromrelin",
+    "solarradiation",
+    "uv",
+)
+_SERIES_LIMIT = 1500
 _PASSKEY_LOG = re.compile(r"(?i)(PASSKEY=)[^&\s]*")
 _FLOAT = re.compile(r"-?\d+\.\d+")
 _INT = re.compile(r"-?\d+")
@@ -199,6 +216,76 @@ def weather_response(history_dir, query):
     return 200, {"records": records}
 
 
+def ambient_dir(history_dir):
+    return history_dir.parent / "ambient"
+
+
+def stride_series(records, limit=_SERIES_LIMIT):
+    total = len(records)
+    if total <= limit:
+        return records, 1
+    # ponytail: even stride hides spikes such as gusts; dragging a shorter
+    # interval refetches that window at full resolution. Upgrade path: min/max
+    # buckets per stride.
+    slots = limit - 2
+    step = max(2, (total - 2 + slots - 1) // slots)
+    chosen = [records[0]]
+    index = step
+    last = total - 1
+    while index < last and len(chosen) < limit - 1:
+        chosen.append(records[index])
+        index += step
+    chosen.append(records[last])
+    return chosen, step
+
+
+def read_snapshot(path):
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def dashboard_series(history_dir, query, now=None):
+    """One source over [from, to]. Missing ends are the last 24 hours."""
+    params = {
+        key: (values[0] if values else "")
+        for key, values in parse_qs(query, keep_blank_values=True).items()
+    }
+    source = (params.get("source") or "ambient").strip() or "ambient"
+    if source == "ambient":
+        folder = ambient_dir(history_dir)
+        snapshot = folder / "latest.json"
+    elif source == "history":
+        folder = history_dir
+        snapshot = latest_path(history_dir)
+    else:
+        return 400, {"ok": False}
+
+    clock = now if now is not None else datetime.now(timezone.utc).replace(tzinfo=None)
+    default_to = clock.strftime("%Y-%m-%dT%H:%M:%SZ")
+    default_from = (clock - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    raw_from = params.get("from", "").strip()
+    raw_to = params.get("to", "").strip()
+    start = parse_timestamp(raw_from) if raw_from else default_from
+    end = parse_timestamp(raw_to) if raw_to else default_to
+    if start is None or end is None or start > end:
+        return 400, {"ok": False}
+
+    records, _opened = query_history(folder, start, end, _CHART_FIELDS)
+    total = len(records)
+    records, step = stride_series(records)
+    latest = read_snapshot(snapshot)
+    return 200, {
+        "source": source,
+        "from": start,
+        "to": end,
+        "step": step,
+        "total": total,
+        "latest": project_record(latest, _CHART_FIELDS) if latest else None,
+        "records": records,
+    }
+
+
 def redact_passkey(text):
     return _PASSKEY_LOG.sub(r"\1REDACTED", text)
 
@@ -208,12 +295,24 @@ class WeatherHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         split = urlsplit(self.path)
+        if split.path == "/dashboard":
+            self._reply_bytes(
+                200, "text/html; charset=utf-8", DASHBOARD_PAGE.read_bytes()
+            )
+            return
+        if split.path == "/dashboard.js":
+            self._reply_bytes(
+                200, "text/javascript; charset=utf-8", DASHBOARD_SCRIPT.read_bytes()
+            )
+            return
         if split.path in ("/data/report", "/data/report/"):
             status, payload = ingest_reading(self.history_dir, split.query)
         elif split.path == "/weather/latest":
             status, payload = weather_response(self.history_dir, "")
         elif split.path == "/weather":
             status, payload = weather_response(self.history_dir, split.query)
+        elif split.path == "/dashboard/series":
+            status, payload = dashboard_series(self.history_dir, split.query)
         else:
             status, payload = 404, {"ok": False}
         self._reply(status, payload)
@@ -240,6 +339,13 @@ class WeatherHandler(BaseHTTPRequestHandler):
         )
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _reply_bytes(self, status, content_type, data):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -317,6 +423,128 @@ def self_check():
             "from=2026-10-11T11:30:00Z&to=2026-10-11+16:00:00&fields=tempf,humidity",
         )
         assert status == 200 and payload == {"records": records}
+
+    with tempfile.TemporaryDirectory() as directory:
+        history = Path(directory) / "history"
+        ambient = history.parent / "ambient"
+        now = datetime(2026, 10, 11, 16, 0, 0)
+        append_record(
+            bucket_path(ambient, "2026-10-10T15:00:00Z"),
+            {"dateutc": "2026-10-10T15:00:00Z", "tempf": 10.0},
+        )
+        append_record(
+            bucket_path(ambient, "2026-10-11T12:00:00Z"),
+            {"dateutc": "2026-10-11T12:00:00Z", "tempf": 60.0},
+        )
+        append_record(
+            bucket_path(ambient, "2026-10-11T15:00:00Z"),
+            {"dateutc": "2026-10-11T15:00:00Z", "tempf": 62.0, "PASSKEY": "secret"},
+        )
+        append_record(
+            bucket_path(history, "2026-10-11T14:30:00Z"),
+            {"dateutc": "2026-10-11T14:30:00Z", "tempf": 1.0},
+        )
+        append_record(
+            bucket_path(history, "2026-10-11T15:00:00Z"),
+            {"dateutc": "2026-10-11T15:00:00Z", "tempf": 9.0},
+        )
+        append_record(
+            bucket_path(history, "2026-10-11T15:30:00Z"),
+            {"dateutc": "2026-10-11T15:30:00Z", "tempf": 64.0},
+        )
+        write_latest(
+            ambient / "latest.json",
+            {"dateutc": "2026-10-11T15:00:00Z", "tempf": 62.0},
+        )
+        write_latest(
+            latest_path(history),
+            {"dateutc": "2026-10-11T15:40:00Z", "tempf": 65.5},
+        )
+        status, payload = dashboard_series(history, "", now)
+        assert status == 200
+        assert payload["source"] == "ambient"
+        assert payload["from"] == "2026-10-10T16:00:00Z"
+        assert payload["to"] == "2026-10-11T16:00:00Z"
+        assert payload["step"] == 1
+        assert payload["total"] == 2
+        assert [row["dateutc"] for row in payload["records"]] == [
+            "2026-10-11T12:00:00Z",
+            "2026-10-11T15:00:00Z",
+        ]
+        assert [row["tempf"] for row in payload["records"]] == [60.0, 62.0]
+        assert all("PASSKEY" not in row for row in payload["records"])
+        assert payload["latest"]["dateutc"] == "2026-10-11T15:00:00Z"
+        assert payload["latest"]["tempf"] == 62.0
+        assert "2026-10-11T14:30:00Z" not in [
+            row["dateutc"] for row in payload["records"]
+        ]
+
+        same, same_body = dashboard_series(history, "source=ambient", now)
+        assert same == 200 and same_body["records"] == payload["records"]
+        assert same_body["latest"] == payload["latest"]
+
+        status, history_body = dashboard_series(history, "source=history", now)
+        assert status == 200
+        assert history_body["source"] == "history"
+        assert history_body["from"] == payload["from"] and history_body["to"] == payload["to"]
+        assert [row["dateutc"] for row in history_body["records"]] == [
+            "2026-10-11T14:30:00Z",
+            "2026-10-11T15:00:00Z",
+            "2026-10-11T15:30:00Z",
+        ]
+        assert [row["tempf"] for row in history_body["records"]] == [1.0, 9.0, 64.0]
+        assert history_body["latest"]["dateutc"] == "2026-10-11T15:40:00Z"
+        assert history_body["latest"]["tempf"] == 65.5
+        assert "2026-10-11T12:00:00Z" not in [
+            row["dateutc"] for row in history_body["records"]
+        ]
+
+        assert dashboard_series(history, "source=nope", now)[0] == 400
+        assert dashboard_series(history, "from=not-a-time", now)[0] == 400
+        assert dashboard_series(history, "to=not-a-time", now)[0] == 400
+        assert dashboard_series(
+            history,
+            "from=2026-10-11T18:00:00Z&to=2026-10-11T12:00:00Z",
+            now,
+        )[0] == 400
+
+        count = 1501
+        origin = datetime(2026, 1, 1, 0, 0, 0)
+        lines = []
+        for index in range(count):
+            stamp = (origin + timedelta(seconds=index)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            lines.append(json.dumps({"dateutc": stamp, "tempf": index}))
+        (history / "2026-01-01_00.jsonl").write_text(
+            "\n".join(lines) + "\n", encoding="utf-8"
+        )
+        last_stamp = (origin + timedelta(seconds=count - 1)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        status, long_body = dashboard_series(
+            history,
+            "source=history&from=2026-01-01T00:00:00Z&to=2026-01-01T00:30:00Z",
+            now,
+        )
+        assert status == 200
+        assert long_body["step"] > 1
+        assert long_body["total"] == count
+        assert len(long_body["records"]) < count
+        assert long_body["records"][0]["dateutc"] == "2026-01-01T00:00:00Z"
+        assert long_body["records"][-1]["dateutc"] == last_stamp
+
+    handler = WeatherHandler.__new__(WeatherHandler)
+    handler.path = "/dashboard"
+    handler.wfile = io.BytesIO()
+    handler.send_response = lambda code, message=None: None
+    handler.send_header = lambda key, value: None
+    handler.end_headers = lambda: None
+    handler.do_GET()
+    page = handler.wfile.getvalue()
+    assert b'src="/dashboard.js"' in page
+    handler.wfile = io.BytesIO()
+    handler.path = "/dashboard.js"
+    handler.do_GET()
+    assert b"/dashboard/series" in handler.wfile.getvalue()
 
     print("self-check ok")
 

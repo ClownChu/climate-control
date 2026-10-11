@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weather</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              900: '#0c4a6e',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #f8fafc;
+      color: #0f172a;
+      -webkit-font-smoothing: antialiased;
+    }
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+    canvas {
+      cursor: crosshair;
+    }
+    #table-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: #cbd5e1 transparent;
+    }
+    [hidden] {
+      display: none !important;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <i class="ph-fill ph-cloud-sun text-brand-500 text-2xl"></i>
+            Station Weather
+          </h1>
+          <p id="status" class="text-sm text-slate-500 mt-1 font-medium"></p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 sm:gap-4 controls">
+          <div class="flex p-1 bg-slate-100 rounded-lg shadow-inner" id="source" role="group" aria-label="Dataset">
+            <button type="button" data-source="ambient" class="px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200" aria-pressed="true">Ambient</button>
+            <button type="button" data-source="history" class="px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200" aria-pressed="false">History</button>
+          </div>
+
+          <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-lg shadow-sm p-1 stepper relative" role="group" aria-label="Adjust the time range">
+            <button type="button" data-step="unit-down" class="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed" aria-label="Smaller unit or previous month"><i class="ph ph-caret-double-left"></i></button>
+            <button type="button" data-step="amount-down" class="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed" aria-label="One less, or start one day earlier"><i class="ph ph-caret-left"></i></button>
+
+            <div class="relative" id="filter">
+              <button type="button" id="filter-value" class="px-3 py-1.5 text-sm font-semibold text-slate-700 hover:text-slate-900 flex items-center gap-2 rounded-md hover:bg-slate-50 transition-colors" aria-haspopup="dialog" aria-expanded="false" aria-controls="filter-menu">
+                <i class="ph ph-calendar-blank text-slate-400"></i>
+                <span id="filter-label" class="truncate max-w-[150px] sm:max-w-[200px]">Last 24 hours</span>
+                <i class="ph ph-caret-down text-xs text-slate-400"></i>
+              </button>
+              <form id="filter-menu" class="absolute right-0 top-full mt-2 w-[40rem] max-w-[calc(100vw-16px)] bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-4 flex flex-col gap-4" hidden>
+                <label class="mode flex items-center gap-3 cursor-pointer group">
+                  <input type="radio" name="filter-mode" value="last" checked class="text-brand-500 focus:ring-brand-500 w-4 h-4 cursor-pointer shrink-0">
+                  <span class="text-sm font-medium text-slate-700 group-hover:text-slate-900 shrink-0">Last</span>
+                  <input type="number" id="last-count" min="1" step="1" value="24" inputmode="numeric" class="w-24 px-2 py-1 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+                  <select id="last-unit" aria-label="Unit" class="min-w-[9rem] flex-1 px-2 py-1 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none bg-white">
+                    <option value="seconds">seconds</option>
+                    <option value="minutes">minutes</option>
+                    <option value="hours" selected>hours</option>
+                    <option value="days">days</option>
+                    <option value="months">months</option>
+                    <option value="years">years</option>
+                  </select>
+                </label>
+                <div class="h-px bg-slate-100"></div>
+                <div class="mode flex flex-col gap-3">
+                  <label class="flex items-center gap-3 cursor-pointer group">
+                    <input type="radio" name="filter-mode" value="range" class="text-brand-500 focus:ring-brand-500 w-4 h-4 cursor-pointer">
+                    <span class="text-sm font-medium text-slate-700 group-hover:text-slate-900">Custom Range</span>
+                  </label>
+                  <div class="grid grid-cols-[3rem_1fr] items-center gap-2 pl-7">
+                    <span class="text-xs font-medium text-slate-500 uppercase">From</span>
+                    <input type="datetime-local" id="from" step="1" class="w-full min-w-[18rem] px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+                    <span class="text-xs font-medium text-slate-500 uppercase">To</span>
+                    <input type="datetime-local" id="to" step="1" class="w-full min-w-[18rem] px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+                  </div>
+                </div>
+                <div class="flex justify-end pt-2">
+                  <button type="submit" class="px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors shadow-sm">Apply Filter</button>
+                </div>
+              </form>
+            </div>
+
+            <button type="button" data-step="amount-up" class="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed" aria-label="One more, or end one day later"><i class="ph ph-caret-right"></i></button>
+            <button type="button" data-step="unit-up" class="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed" aria-label="Larger unit or next month"><i class="ph ph-caret-double-right"></i></button>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <div class="flex items-center gap-4 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm text-sm" id="stats">
+              <label class="flex items-center gap-2 cursor-pointer text-slate-600 hover:text-slate-900">
+                <input type="checkbox" id="show-average" class="rounded text-brand-500 focus:ring-brand-500">
+                <span class="font-medium">Avg</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer text-slate-600 hover:text-slate-900">
+                <input type="checkbox" id="show-median" class="rounded text-brand-500 focus:ring-brand-500">
+                <span class="font-medium">Med</span>
+              </label>
+            </div>
+
+            <div class="flex p-1 bg-slate-100 rounded-lg shadow-inner" id="view" role="group" aria-label="View">
+              <button type="button" data-view="charts" aria-pressed="true" class="px-3 py-1.5 text-sm rounded-md transition-all duration-200" title="Charts View"><i class="ph ph-chart-line-up text-lg"></i></button>
+              <button type="button" data-view="table" aria-pressed="false" class="px-3 py-1.5 text-sm rounded-md transition-all duration-200" title="Table View"><i class="ph ph-table text-lg"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="max-w-[1600px] mx-auto w-full px-4 sm:px-6 lg:px-8 mt-4">
+    <p class="bg-red-50 text-red-700 px-4 py-3 rounded-lg border border-red-100 text-sm font-medium flex items-center gap-2" id="error" hidden>
+      <i class="ph ph-warning-circle text-lg"></i>
+      <span id="error-msg"></span>
+    </p>
+  </div>
+
+  <main class="flex-1 max-w-[1600px] mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
+    <section id="latest" aria-label="Current readings" class="grid grid-cols-2 md:grid-cols-4 lg:flex lg:flex-wrap gap-4"></section>
+    <div id="reset-row" class="flex justify-end" hidden>
+      <button type="button" id="back" class="px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 flex items-center gap-1.5 transition-colors">
+        <i class="ph ph-arrow-counter-clockwise"></i> Reset view
+      </button>
+    </div>
+    <section id="charts" aria-label="Charts" class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12"></section>
+    <div id="table-wrap" hidden class="pb-12 h-full flex flex-col">
+      <div id="table-scroll" class="overflow-auto bg-white border border-slate-200 rounded-xl shadow-sm flex-1 max-h-[70vh]">
+        <table class="min-w-full divide-y divide-slate-200">
+          <thead class="bg-slate-50 sticky top-0 z-10 shadow-sm" id="table-head"></thead>
+          <tbody class="bg-white divide-y divide-slate-100" id="table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
+  <script src="/dashboard.js"></script>
+</body>
+</html>
