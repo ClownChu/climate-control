@@ -1,0 +1,15 @@
+# Configuration for always keeping the house heated within specified ranges.
+# Temps are keyed by hour (0-23), with min/max values in Fahrenheit.
+temps:
+  6:
+    min: 60
+    max: 65
+  23:
+    min: 52
+    max: 60
+
+use_fan: True
+min_temp_gain: 2  # Minimum temperature increase to trigger fan.
+max_temp_loss: 1  # Maximum temperature drop allowed before action.
+end_fan_after: 120  # Seconds to run fan before ending.
+cycle_end_max_temp_loss: 1  # Max temp loss at cycle end.

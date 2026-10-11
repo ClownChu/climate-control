@@ -1,0 +1,17 @@
+# Configuration to prevent house from freezing.
+temps:
+  0:
+    min: 50
+    max: 53
+  13:
+    min: 50
+    max: 55
+  15:
+    min: 50
+    max: 53
+    
+use_fan: False
+min_temp_gain: 2
+max_temp_loss: 2
+end_fan_after: 120
+cycle_end_max_temp_loss: 1

@@ -1,0 +1,26 @@
+# Configuration for maintaining temperature in a daily range.
+temps:
+  6:
+    min: 64
+    max: 68
+  7:
+    min: 57
+    max: 60
+  16:
+    min: 60
+    max: 62
+  19:
+    min: 64
+    max: 68
+  0:
+    min: 57
+    max: 62
+  2:
+    min: 55
+    max: 59
+
+use_fan: False
+min_temp_gain: 2
+max_temp_loss: 2
+end_fan_after: 120
+cycle_end_max_temp_loss: 1
