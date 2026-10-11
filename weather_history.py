@@ -2,14 +2,17 @@
 
 import json
 import os
+import re
 import sys
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import requests
 
+from envfile import load_dotenv
 from weather_server import (
     append_record,
     bucket_path,
@@ -18,12 +21,13 @@ from weather_server import (
 )
 
 DEFAULT_AMBIENT = Path(__file__).resolve().parent / "data" / "ambient"
+DOTENV = Path(__file__).resolve().parent / ".env"
 
 BASE_URL = "https://api.ambientweather.net"
 LIMIT = 288
 WINDOW = timedelta(hours=6)
 NEAR = timedelta(minutes=5)
-LOOKBACK = timedelta(days=3600)
+LOOKBACK = timedelta(days=2110)
 MAX_ATTEMPTS = 8
 MAX_BACKOFF_SECONDS = 60
 _ISO = "%Y-%m-%dT%H:%M:%SZ"
@@ -87,7 +91,7 @@ def checkpoint_path(history_dir):
 
 
 def latest_path(history_dir):
-    return history_dir / "latest.json"
+    return history_dir / "_latest.json"
 
 
 def read_checkpoint(path):
@@ -182,11 +186,39 @@ class AmbientClient:
         return body
 
     def history(self, mac, end):
-        params = {"endDate": str(_to_ms(end)), "limit": str(LIMIT)}
+        params = {"endDate": _iso(end), "limit": str(LIMIT)}
         body = self._get("/v1/devices/" + mac, params)
         if not isinstance(body, list):
             raise RuntimeError("history was not a list")
         return body
+
+
+_SECRET_QUERY = {"apikey", "applicationkey"}
+_SECRET_TEXT = re.compile(r"(?i)(apiKey|applicationKey)=[^&\s\"']*")
+
+
+def failure_detail(exc):
+    """Status, path, and non-secret query fields. The keys stay out of the log."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return type(exc).__name__
+    parts = urlsplit(getattr(response, "url", "") or "")
+    query = parse_qs(parts.query, keep_blank_values=True)
+    extra = [
+        f"{key}={values[0]}"
+        for key, values in query.items()
+        if key.lower() not in _SECRET_QUERY and values
+    ]
+    body = " ".join((getattr(response, "text", "") or "").split())
+    body = _SECRET_TEXT.sub(r"\1=REDACTED", body)
+    if len(body) > 300:
+        body = body[:300] + "..."
+    detail = f"HTTP {response.status_code} {response.reason} {parts.path}"
+    if extra:
+        detail = f"{detail} {' '.join(extra)}"
+    if body:
+        detail = f"{detail}: {body}"
+    return detail
 
 
 def call_with_retry(operation, sleep):
@@ -196,8 +228,7 @@ def call_with_retry(operation, sleep):
         try:
             result = operation()
         except Exception as exc:
-            # The exception text includes the request URL, and the URL contains the keys.
-            print(f"attempt {attempt} failed: {type(exc).__name__}", flush=True)
+            print(f"attempt {attempt} failed: {failure_detail(exc)}", flush=True)
             if attempt == MAX_ATTEMPTS:
                 raise SystemExit(1)
             sleep(delay)
@@ -299,8 +330,10 @@ def collect(history_dir, client, mac, now, sleep):
 
 
 def run(history_dir, now=utc_now, sleep=time.sleep):
+    load_dotenv(DOTENV)
     api_key = os.environ.get("AMBIENT_API_KEY", "")
     application_key = os.environ.get("AMBIENT_APPLICATION_KEY", "")
+
     if not api_key or not application_key:
         print(
             "AMBIENT_API_KEY and AMBIENT_APPLICATION_KEY are required", flush=True
@@ -345,10 +378,67 @@ def _lines(history_dir, text):
 
 
 def self_check():
+    key = "DOTENV_SELF_CHECK"
+    os.environ.pop(key, None)
+    handle, path = tempfile.mkstemp()
+    os.close(handle)
+    with open(path, "w") as stream:
+        stream.write(f"{key}=from-file\n# comment\n\n")
+    try:
+        load_dotenv(path)
+        assert os.environ.get(key) == "from-file"
+        os.environ[key] = "already"
+        load_dotenv(path)
+        assert os.environ[key] == "already"
+    finally:
+        os.remove(path)
+        os.environ.pop(key, None)
+
     slept = []
 
     def sleep(seconds):
         slept.append(seconds)
+
+    class _Response:
+        status_code = 404
+        reason = "Not Found"
+        url = (
+            "https://api.ambientweather.net/v1/devices/AA:BB"
+            "?apiKey=secret&applicationKey=secret&endDate=1&limit=288"
+        )
+        text = "no device apiKey=secret"
+
+    class _HTTPError(Exception):
+        response = _Response()
+
+    detail = failure_detail(_HTTPError())
+    assert detail == (
+        "HTTP 404 Not Found /v1/devices/AA:BB endDate=1 limit=288: "
+        "no device apiKey=REDACTED"
+    )
+    assert "secret" not in detail
+    assert failure_detail(RuntimeError("nope")) == "RuntimeError"
+
+    def fail():
+        raise RuntimeError("down")
+
+    try:
+        call_with_retry(fail, lambda _seconds: None)
+        raise AssertionError("retry exhaustion should exit")
+    except SystemExit as exc:
+        assert exc.code == 1
+
+    sent = {}
+    probe = AmbientClient("k", "a")
+
+    def fake_get(path, params):
+        sent["path"] = path
+        sent["params"] = params
+        return []
+
+    probe._get = fake_get
+    probe.history("AA:BB", _at("2024-06-25T04:15:00Z"))
+    assert sent["params"]["endDate"] == "2024-06-25T04:15:00Z"
 
     assert DEFAULT_AMBIENT == Path(__file__).resolve().parent / "data" / "ambient"
 
@@ -360,7 +450,7 @@ def self_check():
         root = Path(directory)
         history = root / "a" / "ambient"
         assert checkpoint_path(history) == history / "checkpoint"
-        assert latest_path(history) == history / "latest.json"
+        assert latest_path(history) == history / "_latest.json"
         seed = {"dateutc": "2026-10-11T14:30:00Z", "tempf": 50}
         append_record(bucket_path(history, seed["dateutc"]), seed)
         write_latest(
@@ -408,6 +498,7 @@ def self_check():
         assert checkpoint_path(history).parent == history
         assert not (history.parent / "weather.checkpoint").exists()
         assert not (history.parent / "weather-latest.json").exists()
+        assert not (history / "latest.json").exists()
 
         write_latest(
             latest_path(history), {"dateutc": "2026-10-11T17:00:00Z", "tempf": 70}

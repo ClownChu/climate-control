@@ -25,7 +25,13 @@
             <code>pip install -r requirements.txt</code>
         </li>
         <li>
-            <code>python3 ./run.py &lt;refresh-token&gt; &lt;profile&gt; &lt;device-id&gt;</code>
+            Copy <code>.env.exemple</code> to <code>.env</code> and set <code>REFRESH_TOKEN</code>.
+        </li>
+        <li>
+            <code>python3 ./run.py &lt;profile&gt; &lt;device-id&gt; [refresh-token]</code>
+        </li>
+        <li>
+            The refresh token comes from <code>REFRESH_TOKEN</code>. When that is unset, the last argument is used.
         </li>
     </ul>
 </div>
@@ -40,7 +46,7 @@
             <code>python3 weather_server.py</code> listens on port 8099. Open <code>http://127.0.0.1:8099/dashboard</code>. Pass a port and a history directory to override the defaults.
         </li>
         <li>
-            <code>python3 weather_history.py</code> backfills Ambient history into <code>data/ambient</code>. Set <code>AMBIENT_API_KEY</code> and <code>AMBIENT_APPLICATION_KEY</code> first. <code>AMBIENT_MAC</code> picks one station when the account has several.
+            <code>python3 weather_history.py</code> backfills Ambient history into <code>data/ambient</code>. It loads <code>AMBIENT_API_KEY</code> and <code>AMBIENT_APPLICATION_KEY</code> from <code>.env</code>. <code>AMBIENT_MAC</code> picks one station when the account has several.
         </li>
         <li>
             <code>python3 weather_server.py --self-check</code> and <code>python3 weather_history.py --self-check</code> exercise the collectors without calling Ambient.
