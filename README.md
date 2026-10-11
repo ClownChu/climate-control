@@ -25,7 +25,13 @@
             <code>pip install -r requirements.txt</code>
         </li>
         <li>
-            <code>python3 ./run.py &lt;refresh-token&gt; &lt;profile&gt; &lt;device-id&gt;</code>
+            Copy <code>.env.exemple</code> to <code>.env</code> and set <code>REFRESH_TOKEN</code>.
+        </li>
+        <li>
+            <code>python3 ./run.py &lt;profile&gt; &lt;device-id&gt; [refresh-token]</code>
+        </li>
+        <li>
+            The refresh token comes from <code>REFRESH_TOKEN</code>. When that is unset, the last argument is used.
         </li>
     </ul>
 </div>

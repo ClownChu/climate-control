@@ -28,7 +28,7 @@ class SensiApi:
 
     def request_tokens(self):
         if not self.refresh_token:
-            raise ValueError("Refresh token not set. Pass it as a run parameter.")
+            raise ValueError("Refresh token not set. Pass it as a run parameter or set REFRESH_TOKEN in .env.")
 
         data = {
             "refresh_token": self.refresh_token,
