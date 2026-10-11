@@ -87,7 +87,7 @@ def bucket_path(history_dir, dateutc):
 
 
 def latest_path(history_dir):
-    return history_dir.parent / "weather-latest.json"
+    return history_dir / "_latest.json"
 
 
 def bucket_window(path):
@@ -254,12 +254,11 @@ def dashboard_series(history_dir, query, now=None):
     source = (params.get("source") or "ambient").strip() or "ambient"
     if source == "ambient":
         folder = ambient_dir(history_dir)
-        snapshot = folder / "latest.json"
     elif source == "history":
         folder = history_dir
-        snapshot = latest_path(history_dir)
     else:
         return 400, {"ok": False}
+    snapshot = latest_path(folder)
 
     clock = now if now is not None else datetime.now(timezone.utc).replace(tzinfo=None)
     default_to = clock.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -392,6 +391,7 @@ def self_check():
         stored = json.loads(afternoon.strip().splitlines()[-1])
         assert stored["tempf"] == 61.0 and stored["humidity"] == 99
 
+        assert latest_path(history) == history / "_latest.json"
         latest = json.loads(latest_path(history).read_text(encoding="utf-8"))
         assert latest["dateutc"] == "2026-10-11T15:10:16Z"
         assert "PASSKEY" not in latest
@@ -453,7 +453,7 @@ def self_check():
             {"dateutc": "2026-10-11T15:30:00Z", "tempf": 64.0},
         )
         write_latest(
-            ambient / "latest.json",
+            latest_path(ambient),
             {"dateutc": "2026-10-11T15:00:00Z", "tempf": 62.0},
         )
         write_latest(
