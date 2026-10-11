@@ -87,7 +87,7 @@ def checkpoint_path(history_dir):
 
 
 def latest_path(history_dir):
-    return history_dir / "latest.json"
+    return history_dir / "_latest.json"
 
 
 def read_checkpoint(path):
@@ -360,7 +360,7 @@ def self_check():
         root = Path(directory)
         history = root / "a" / "ambient"
         assert checkpoint_path(history) == history / "checkpoint"
-        assert latest_path(history) == history / "latest.json"
+        assert latest_path(history) == history / "_latest.json"
         seed = {"dateutc": "2026-10-11T14:30:00Z", "tempf": 50}
         append_record(bucket_path(history, seed["dateutc"]), seed)
         write_latest(
@@ -408,6 +408,7 @@ def self_check():
         assert checkpoint_path(history).parent == history
         assert not (history.parent / "weather.checkpoint").exists()
         assert not (history.parent / "weather-latest.json").exists()
+        assert not (history / "latest.json").exists()
 
         write_latest(
             latest_path(history), {"dateutc": "2026-10-11T17:00:00Z", "tempf": 70}
