@@ -40,7 +40,7 @@ class BaseRoutine:
                         self._thermostats[_id] = SensiThermostat(api_instance, device)
                 await self._control_temperature()
 
-    def run(self, username, password, device_id):
+    def run(self, refresh_token, device_id):
         self.device_id = device_id
-        sensi_api = SensiApi(username, password)
+        sensi_api = SensiApi(refresh_token)
         sensi_api.start(self.routine_callback)

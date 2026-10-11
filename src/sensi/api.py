@@ -17,20 +17,18 @@ with open(file_path + '/../config/api_config.yml') as stream:
     CONFIG = yaml.safe_load(stream)
 
 class SensiApi:
-    def __init__(self, username, password):
+    def __init__(self, refresh_token):
         self._id = uuid.uuid4()
-        self.username = username
-        self.password = password
         self.status_code = 500
         self.access_token = None
-        self.refresh_token = os.getenv('SENS_REFRESH_TOKEN', CONFIG['REFRESH_TOKEN'])
+        self.refresh_token = refresh_token
         self.client_secret = os.getenv('SENS_CLIENT_SECRET', CONFIG['CLIENT_SECRET'])
         self.expires_at = None
         self._websocket = None
 
     def request_tokens(self):
         if not self.refresh_token:
-            raise ValueError("Refresh token not set. Provide via env var or config.")
+            raise ValueError("Refresh token not set. Pass it as a run parameter.")
 
         data = {
             "refresh_token": self.refresh_token,
