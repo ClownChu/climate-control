@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import requests
 
+from envfile import load_dotenv
 from weather_server import (
     append_record,
     bucket_path,
@@ -30,19 +31,6 @@ LOOKBACK = timedelta(days=2110)
 MAX_ATTEMPTS = 8
 MAX_BACKOFF_SECONDS = 60
 _ISO = "%Y-%m-%dT%H:%M:%SZ"
-
-
-def load_dotenv(path):
-    try:
-        with open(path) as stream:
-            for raw in stream:
-                line = raw.strip()
-                if not line or line.startswith('#') or '=' not in line:
-                    continue
-                key, value = line.split('=', 1)
-                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-    except FileNotFoundError:
-        return
 
 
 def utc_now():
@@ -242,7 +230,7 @@ def call_with_retry(operation, sleep):
         except Exception as exc:
             print(f"attempt {attempt} failed: {failure_detail(exc)}", flush=True)
             if attempt == MAX_ATTEMPTS:
-                return None
+                raise SystemExit(1)
             sleep(delay)
             delay = min(delay * 2, MAX_BACKOFF_SECONDS)
             continue
@@ -395,7 +383,7 @@ def self_check():
     handle, path = tempfile.mkstemp()
     os.close(handle)
     with open(path, "w") as stream:
-        stream.write(f"{key}=from-file\n")
+        stream.write(f"{key}=from-file\n# comment\n\n")
     try:
         load_dotenv(path)
         assert os.environ.get(key) == "from-file"
@@ -430,6 +418,15 @@ def self_check():
     )
     assert "secret" not in detail
     assert failure_detail(RuntimeError("nope")) == "RuntimeError"
+
+    def fail():
+        raise RuntimeError("down")
+
+    try:
+        call_with_retry(fail, lambda _seconds: None)
+        raise AssertionError("retry exhaustion should exit")
+    except SystemExit as exc:
+        assert exc.code == 1
 
     sent = {}
     probe = AmbientClient("k", "a")

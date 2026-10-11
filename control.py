@@ -1,29 +1,13 @@
 import sys
 import os
-import tempfile
-from src.routines.keep_temperature_in_range import KeepTemperatureInRangeRoutine
-from src.routines.keep_temperature_in_range_spring import KeepTemperatureInRangeSpringRoutine
-from src.routines.out_and_warm import OutAndWarmRoutine
-from src.routines.keep_house_from_freezing import KeepHouseFromFreezingRoutine
-from src.routines.always_heated import AlwaysHeatedRoutine
+
+from envfile import load_dotenv
 
 def to_pascal_case(text: str):
     if len(text) == 0:
         return text
     s = text.replace("-", " ").replace("_", " ").split()
     return ''.join(i.capitalize() for i in s)
-
-def load_dotenv(path):
-    try:
-        with open(path) as stream:
-            for raw in stream:
-                line = raw.strip()
-                if not line or line.startswith('#') or '=' not in line:
-                    continue
-                key, value = line.split('=', 1)
-                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-    except FileNotFoundError:
-        return
 
 def resolve_run(argv, environ):
     args = argv[1:]
@@ -37,27 +21,19 @@ def _self_check():
     assert resolve_run(['c', 'profile', 'device', 'from-cli'], {}) == ('from-cli', 'profile', 'device')
     assert resolve_run(['c', 'profile', 'device', 'from-cli'], {'REFRESH_TOKEN': 'from-env'}) == ('from-env', 'profile', 'device')
     assert resolve_run(['c', 'profile'], {}) is None
-    key = 'DOTENV_SELF_CHECK'
-    os.environ.pop(key, None)
-    handle, path = tempfile.mkstemp()
-    os.close(handle)
-    with open(path, 'w') as stream:
-        stream.write(f'{key}=from-file\n# comment\n\n')
-    try:
-        load_dotenv(path)
-        assert os.environ.get(key) == 'from-file'
-        os.environ[key] = 'already'
-        load_dotenv(path)
-        assert os.environ[key] == 'already'
-    finally:
-        os.remove(path)
-        os.environ.pop(key, None)
     print('ok')
 
 if __name__ == '__main__':
     if len(sys.argv) == 2 and sys.argv[1] == '--self-check':
         _self_check()
     else:
+        # Imported here so --self-check does not load websockets or api_config.yml.
+        from src.routines.keep_temperature_in_range import KeepTemperatureInRangeRoutine
+        from src.routines.keep_temperature_in_range_spring import KeepTemperatureInRangeSpringRoutine
+        from src.routines.out_and_warm import OutAndWarmRoutine
+        from src.routines.keep_house_from_freezing import KeepHouseFromFreezingRoutine
+        from src.routines.always_heated import AlwaysHeatedRoutine
+
         file_path = os.path.dirname(os.path.abspath(__file__))
         load_dotenv(os.path.join(file_path, '.env'))
         resolved = resolve_run(sys.argv, os.environ)
