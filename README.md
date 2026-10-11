@@ -25,7 +25,7 @@
             <code>pip install -r requirements.txt</code>
         </li>
         <li>
-            <code>python3 ./run.py <email> <password> <profile> <device-id></code>
+            <code>python3 ./run.py &lt;refresh-token&gt; &lt;profile&gt; &lt;device-id&gt;</code>
         </li>
     </ul>
 </div>
