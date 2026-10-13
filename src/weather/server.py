@@ -2,6 +2,7 @@
 
 import io
 import json
+import logging
 import re
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from src.utils.log import LOG_NAMES, configure_logging, service_logs
 from src.utils.weather_config import DEFAULT_HISTORY, DEFAULT_PORT
 from src.utils.weather_store import (
     append_record,
@@ -21,9 +23,13 @@ from src.utils.weather_store import (
     write_latest,
 )
 
+# python -m sets __name__ to __main__; the spec keeps src.weather.server.
+LOG = logging.getLogger(__spec__.name if __spec__ is not None else __name__)
 _ROOT = Path(__file__).resolve().parents[2]
 DASHBOARD_PAGE = _ROOT / "dashboard.html"
 DASHBOARD_SCRIPT = _ROOT / "dashboard.js"
+SERVICES_PAGE = _ROOT / "services.html"
+SERVICES_SCRIPT = _ROOT / "services.js"
 _CHART_FIELDS = (
     "tempf",
     "tempinf",
@@ -110,8 +116,8 @@ def weather_response(history_dir, query):
     return 200, {"records": records}
 
 
-def ambient_dir(history_dir):
-    return history_dir.parent / "ambient"
+def historical_dir(station_dir):
+    return station_dir.parent / "historical"
 
 
 def stride_series(records, limit=_SERIES_LIMIT):
@@ -145,10 +151,10 @@ def dashboard_series(history_dir, query, now=None):
         key: (values[0] if values else "")
         for key, values in parse_qs(query, keep_blank_values=True).items()
     }
-    source = (params.get("source") or "ambient").strip() or "ambient"
-    if source == "ambient":
-        folder = ambient_dir(history_dir)
-    elif source == "history":
+    source = (params.get("source") or "historical").strip() or "historical"
+    if source == "historical":
+        folder = historical_dir(history_dir)
+    elif source == "station":
         folder = history_dir
     else:
         return 400, {"ok": False}
@@ -198,6 +204,19 @@ class WeatherHandler(BaseHTTPRequestHandler):
                 200, "text/javascript; charset=utf-8", DASHBOARD_SCRIPT.read_bytes()
             )
             return
+        if split.path == "/services":
+            self._reply_bytes(
+                200, "text/html; charset=utf-8", SERVICES_PAGE.read_bytes()
+            )
+            return
+        if split.path == "/services.js":
+            self._reply_bytes(
+                200, "text/javascript; charset=utf-8", SERVICES_SCRIPT.read_bytes()
+            )
+            return
+        if split.path == "/services/logs":
+            self._reply(200, service_logs())
+            return
         if split.path in ("/data/report", "/data/report/"):
             status, payload = ingest_reading(self.history_dir, split.query)
         elif split.path == "/weather/latest":
@@ -220,11 +239,7 @@ class WeatherHandler(BaseHTTPRequestHandler):
     do_OPTIONS = do_POST
 
     def log_message(self, fmt, *args):
-        message = redact_passkey(fmt % args)
-        sys.stderr.write(
-            "%s - - [%s] %s\n"
-            % (self.address_string(), self.log_date_time_string(), message)
-        )
+        LOG.info("%s", redact_passkey(fmt % args))
 
     def _reply(self, status, payload):
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
@@ -248,14 +263,16 @@ def serve(port, history):
     WeatherHandler.history_dir = history
     # ponytail: HTTPServer handles one request at a time, which matches one station.
     server = HTTPServer(("0.0.0.0", port), WeatherHandler)
-    print(f"listening on 0.0.0.0:{port} -> {history}", flush=True)
+    LOG.info(f"listening on 0.0.0.0:{port} -> {history}")
     server.serve_forever()
 
 
 def self_check():
     assert DASHBOARD_PAGE == _ROOT / "dashboard.html"
     assert DASHBOARD_SCRIPT == _ROOT / "dashboard.js"
-    assert DEFAULT_HISTORY == _ROOT / "data" / "history"
+    assert SERVICES_PAGE == _ROOT / "services.html"
+    assert SERVICES_SCRIPT == _ROOT / "services.js"
+    assert DEFAULT_HISTORY == _ROOT / "data" / "station"
     assert DEFAULT_PORT == 8099
 
     fixture = (
@@ -332,19 +349,19 @@ def self_check():
         assert status == 200 and payload == {"records": records}
 
     with tempfile.TemporaryDirectory() as directory:
-        history = Path(directory) / "history"
-        ambient = history.parent / "ambient"
+        history = Path(directory) / "station"
+        historical = history.parent / "historical"
         now = datetime(2026, 10, 11, 16, 0, 0)
         append_record(
-            bucket_path(ambient, "2026-10-10T15:00:00Z"),
+            bucket_path(historical, "2026-10-10T15:00:00Z"),
             {"dateutc": "2026-10-10T15:00:00Z", "tempf": 10.0},
         )
         append_record(
-            bucket_path(ambient, "2026-10-11T12:00:00Z"),
+            bucket_path(historical, "2026-10-11T12:00:00Z"),
             {"dateutc": "2026-10-11T12:00:00Z", "tempf": 60.0},
         )
         append_record(
-            bucket_path(ambient, "2026-10-11T15:00:00Z"),
+            bucket_path(historical, "2026-10-11T15:00:00Z"),
             {"dateutc": "2026-10-11T15:00:00Z", "tempf": 62.0, "PASSKEY": "secret"},
         )
         append_record(
@@ -360,7 +377,7 @@ def self_check():
             {"dateutc": "2026-10-11T15:30:00Z", "tempf": 64.0},
         )
         write_latest(
-            latest_path(ambient),
+            latest_path(historical),
             {"dateutc": "2026-10-11T15:00:00Z", "tempf": 62.0},
         )
         write_latest(
@@ -369,7 +386,7 @@ def self_check():
         )
         status, payload = dashboard_series(history, "", now)
         assert status == 200
-        assert payload["source"] == "ambient"
+        assert payload["source"] == "historical"
         assert payload["from"] == "2026-10-10T16:00:00Z"
         assert payload["to"] == "2026-10-11T16:00:00Z"
         assert payload["step"] == 1
@@ -386,13 +403,13 @@ def self_check():
             row["dateutc"] for row in payload["records"]
         ]
 
-        same, same_body = dashboard_series(history, "source=ambient", now)
+        same, same_body = dashboard_series(history, "source=historical", now)
         assert same == 200 and same_body["records"] == payload["records"]
         assert same_body["latest"] == payload["latest"]
 
-        status, history_body = dashboard_series(history, "source=history", now)
+        status, history_body = dashboard_series(history, "source=station", now)
         assert status == 200
-        assert history_body["source"] == "history"
+        assert history_body["source"] == "station"
         assert history_body["from"] == payload["from"] and history_body["to"] == payload["to"]
         assert [row["dateutc"] for row in history_body["records"]] == [
             "2026-10-11T14:30:00Z",
@@ -429,7 +446,7 @@ def self_check():
         )
         status, long_body = dashboard_series(
             history,
-            "source=history&from=2026-01-01T00:00:00Z&to=2026-01-01T00:30:00Z",
+            "source=station&from=2026-01-01T00:00:00Z&to=2026-01-01T00:30:00Z",
             now,
         )
         assert status == 200
@@ -448,15 +465,38 @@ def self_check():
     handler.do_GET()
     page = handler.wfile.getvalue()
     assert b'src="/dashboard.js"' in page
+    assert b'data-source="historical"' in page
+    assert b'data-source="station"' in page
+    assert b'href="/services"' in page
+    assert b"xl:grid-cols-7" in page
     handler.wfile = io.BytesIO()
     handler.path = "/dashboard.js"
     handler.do_GET()
-    assert b"/dashboard/series" in handler.wfile.getvalue()
+    script = handler.wfile.getvalue()
+    assert b"/dashboard/series" in script
+    assert b"spanGaps: false" in script
+    assert b"breakSeriesGaps" in script
+    assert b'source = "historical"' in script
+    handler.wfile = io.BytesIO()
+    handler.path = "/services"
+    handler.do_GET()
+    assert b'src="/services.js"' in handler.wfile.getvalue()
+    handler.wfile = io.BytesIO()
+    handler.path = "/services.js"
+    handler.do_GET()
+    assert b"/services/logs" in handler.wfile.getvalue()
+    handler.wfile = io.BytesIO()
+    handler.path = "/services/logs"
+    handler.do_GET()
+    logs = json.loads(handler.wfile.getvalue())
+    assert [item["name"] for item in logs["loggers"]] == list(LOG_NAMES)
+    assert all(isinstance(item["lines"], list) for item in logs["loggers"])
 
     print("self-check ok")
 
 
 def main(argv):
+    configure_logging()
     if "--self-check" in argv:
         self_check()
         return 0

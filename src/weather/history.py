@@ -1,6 +1,7 @@
-"""Backfill Ambient Weather history into data/ambient JSONL buckets."""
+"""Backfill Ambient Weather history into data/historical JSONL buckets."""
 
 import json
+import logging
 import os
 import sys
 import tempfile
@@ -15,6 +16,7 @@ from src.ambient.api import (
     select_mac,
     self_check as check_ambient,
 )
+from src.utils.log import configure_logging
 from src.utils.weather_config import (
     DEFAULT_AMBIENT,
     DEFAULT_INTERVAL,
@@ -33,6 +35,8 @@ from src.utils.weather_store import (
     write_latest,
 )
 
+# python -m sets __name__ to __main__; the spec keeps src.weather.history.
+LOG = logging.getLogger(__spec__.name if __spec__ is not None else __name__)
 _ISO = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -208,9 +212,8 @@ def collect(history_dir, client, mac, now, sleep):
         if newest_ms is not None and _from_ms(newest_ms) >= requested - NEAR:
             cursor = _from_ms(newest_ms)
         write_checkpoint(path, _to_ms(watermark))
-        print(
-            f"{format_timestamp(current)} end={format_timestamp(requested)} api={len(rows)} appended={appended}",
-            flush=True,
+        LOG.info(
+            f"{format_timestamp(current)} end={format_timestamp(requested)} api={len(rows)} appended={appended}"
         )
         if final:
             break
@@ -228,10 +231,7 @@ def history_interval(raw):
     except ValueError:
         seconds = -1
     if seconds < 0:
-        print(
-            "WEATHER_HISTORY_INTERVAL must be a non-negative integer",
-            flush=True,
-        )
+        LOG.error("WEATHER_HISTORY_INTERVAL must be a non-negative integer")
         raise SystemExit(1)
     return seconds
 
@@ -241,14 +241,12 @@ def _collect_once(history_dir, now, sleep):
     application_key = os.environ.get("AMBIENT_APPLICATION_KEY", "")
 
     if not api_key or not application_key:
-        print(
-            "AMBIENT_API_KEY and AMBIENT_APPLICATION_KEY are required", flush=True
-        )
+        LOG.error("AMBIENT_API_KEY and AMBIENT_APPLICATION_KEY are required")
         raise SystemExit(1)
     client = AmbientClient(api_key, application_key)
     devices = call_with_retry(client.devices, sleep)
     mac = select_mac(devices, os.environ.get("AMBIENT_MAC") or None)
-    print(f"collecting {mac} into {history_dir}", flush=True)
+    LOG.info(f"collecting {mac} into {history_dir}")
     collect(history_dir, client, mac, now, sleep)
 
 
@@ -260,10 +258,7 @@ def loop_collect(collect_once, interval, sleep):
         except SystemExit as exc:
             if exc.code in (0, None):
                 return
-            print(
-                f"collect failed ({exc.code}); retrying in {interval}s",
-                flush=True,
-            )
+            LOG.error(f"collect failed ({exc.code}); retrying in {interval}s")
         sleep(interval)
 
 
@@ -324,7 +319,7 @@ def self_check():
     check_ambient()
 
     root = Path(__file__).resolve().parents[2]
-    assert DEFAULT_AMBIENT == root / "data" / "ambient"
+    assert DEFAULT_AMBIENT == root / "data" / "historical"
     assert DOTENV == root / ".env"
 
     slept = []
@@ -499,6 +494,7 @@ def self_check():
 
 
 def main(argv):
+    configure_logging()
     if "--self-check" in argv:
         self_check()
         return 0

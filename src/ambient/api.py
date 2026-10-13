@@ -1,5 +1,6 @@
 """Ambient Weather HTTP client. Keys stay in the process environment."""
 
+import logging
 import re
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlsplit
@@ -14,6 +15,7 @@ from src.utils.weather_config import (
 )
 from src.utils.weather_store import format_timestamp
 
+LOG = logging.getLogger(__name__)
 _SECRET_QUERY = {"apikey", "applicationkey"}
 _SECRET_TEXT = re.compile(r"(?i)(apiKey|applicationKey)=[^&\s\"']*")
 
@@ -80,7 +82,7 @@ def call_with_retry(operation, sleep):
         try:
             result = operation()
         except Exception as exc:
-            print(f"attempt {attempt} failed: {failure_detail(exc)}", flush=True)
+            LOG.warning(f"attempt {attempt} failed: {failure_detail(exc)}")
             if attempt == MAX_ATTEMPTS:
                 raise SystemExit(1)
             sleep(delay)
@@ -97,12 +99,12 @@ def select_mac(devices, wanted):
             macs.append(device["macAddress"])
     if wanted:
         if wanted not in macs:
-            print("AMBIENT_MAC did not match a device", flush=True)
+            LOG.error("AMBIENT_MAC did not match a device")
             raise SystemExit(1)
         return wanted
     if len(macs) == 1:
         return macs[0]
-    print(f"{len(macs)} devices; set AMBIENT_MAC", flush=True)
+    LOG.error(f"{len(macs)} devices; set AMBIENT_MAC")
     raise SystemExit(1)
 
 

@@ -1,0 +1,25 @@
+# sudo cp climate-control.service /etc/systemd/system/
+# sudo systemctl daemon-reload
+# sudo systemctl enable --now climate-control.service
+
+[Unit]
+Description=Sensi climate control (keep temperature in range)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=vitor-de-souza
+Group=vitor-de-souza
+WorkingDirectory=/home/vitor-de-souza/dev/test-agent/repos/climate-control
+ExecStart=/home/vitor-de-souza/dev/test-agent/repos/climate-control/.venv/bin/python run.py keep_temperature_in_range 36-6f-92-ff-fe-0d-6c-d1
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=5
+# run.py stops its children on SIGINT (KeyboardInterrupt).
+KillSignal=SIGINT
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
