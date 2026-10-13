@@ -4,7 +4,6 @@ from ..sensi.thermostat import SensiThermostat
 from ..utils.thermostat_control import ThermostatControl
 from ..utils.config_parser import ConfigParser
 
-logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)
 
 class BaseRoutine:
