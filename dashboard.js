@@ -1,11 +1,15 @@
 const CHARTS = [
-  {title: "Temperature", icon: "ph-thermometer", unit: "\u00b0F", digits: 1, series: [
-    {key: "tempf", label: "Outdoor", color: "#f97316", average: "#aff916", median: "#f916c2"},
-    {key: "feelsLike", label: "Feels like", color: "#fb7185", average: "#881337", median: "#fda4af", digits: 2},
-    {key: "dewPoint", label: "Dew point", color: "#06b6d4", average: "#155e75", median: "#67e8f9", digits: 2},
-    {key: "tempinf", label: "Indoor", color: "#3b82f6", average: "#9f3bf6", median: "#3bf690"},
-    {key: "feelsLikein", label: "Indoor feels like", color: "#818cf8", average: "#312e81", median: "#c7d2fe"},
-    {key: "dewPointin", label: "Indoor dew point", color: "#2dd4bf", average: "#115e59", median: "#99f6e4"}
+  {title: "Outdoor temperature", icon: "ph-thermometer", unit: "\u00b0F", digits: 1, toggle: "outdoor", series: [
+    {key: "tempf", label: "Outdoor", mode: "actual", color: "#f97316", average: "#aff916", median: "#f916c2"},
+    {key: "feelsLike", label: "Outdoor feels like", mode: "feels", color: "#fb7185", average: "#881337", median: "#fda4af", digits: 2}
+  ]},
+  {title: "Indoor temperature", icon: "ph-house", unit: "\u00b0F", digits: 1, toggle: "indoor", series: [
+    {key: "tempinf", label: "Indoor", mode: "actual", color: "#3b82f6", average: "#9f3bf6", median: "#3bf690"},
+    {key: "feelsLikein", label: "Indoor feels like", mode: "feels", color: "#818cf8", average: "#312e81", median: "#c7d2fe"}
+  ]},
+  {title: "Dew point", icon: "ph-drop", unit: "\u00b0F", digits: 1, series: [
+    {key: "dewPoint", label: "Outdoor", color: "#06b6d4", average: "#155e75", median: "#67e8f9", digits: 2},
+    {key: "dewPointin", label: "Indoor", color: "#2dd4bf", average: "#115e59", median: "#99f6e4"}
   ]},
   {title: "Humidity", icon: "ph-drop", unit: "%", digits: 0, series: [
     {key: "humidity", label: "Outdoor", color: "#14b8a6", average: "#1434b8", median: "#41b814"},
@@ -16,20 +20,13 @@ const CHARTS = [
     {key: "windgustmph", label: "Gust", color: "#f59e0b", average: "#76f50b", median: "#f50b89"},
     {key: "maxdailygust", label: "Max gust", color: "#ef4444", average: "#7f1d1d", median: "#fca5a5"}
   ]},
-  {title: "Wind direction", icon: "ph-compass", unit: "\u00b0", digits: 0, series: [
-    {key: "winddir", label: "Direction", color: "#6366f1", average: "#312e81", median: "#a5b4fc"}
+  {title: "Wind direction", icon: "ph-compass", unit: "", digits: 0, cardinal: true, series: [
+    {key: "winddir", label: "Direction", color: "#6366f1", average: "#312e81", median: "#a5b4fc", cardinal: true}
   ]},
   {title: "Rain", icon: "ph-cloud-rain", unit: "in", digits: 2, series: [
     {key: "hourlyrainin", label: "Hourly", color: "#2563eb", average: "#9d25eb", median: "#25eb8c"},
     {key: "dailyrainin", label: "Daily", color: "#4f46e5", average: "#e146e5", median: "#46e5d4"},
     {key: "eventrainin", label: "Event", color: "#0f766e", average: "#134e4a", median: "#5eead4"}
-  ]},
-  {title: "Weekly / monthly rain", icon: "ph-calendar", unit: "in", digits: 2, series: [
-    {key: "weeklyrainin", label: "Weekly", color: "#0284c7", average: "#0c4a6e", median: "#7dd3fc"},
-    {key: "monthlyrainin", label: "Monthly", color: "#7c3aed", average: "#4c1d95", median: "#c4b5fd"}
-  ]},
-  {title: "Total rain", icon: "ph-stack", unit: "in", digits: 2, series: [
-    {key: "totalrainin", label: "Total", color: "#0f766e", average: "#134e4a", median: "#99f6e4"}
   ]},
   {title: "Pressure", icon: "ph-gauge", unit: "inHg", digits: 2, series: [
     {key: "baromrelin", label: "Relative", color: "#4338ca", average: "#c938ca", median: "#38cabd"}
@@ -49,7 +46,7 @@ const STRIP = [
   ["Indoor dew point", "dewPointin", "\u00b0F", 1, "ph-drop", "text-teal-500"],
   ["Humidity", "humidity", "%", 0, "ph-drop", "text-teal-600"],
   ["Wind", "windspeedmph", "mph", 1, "ph-wind", "text-sky-500"],
-  ["Wind direction", "winddir", "\u00b0", 0, "ph-compass", "text-indigo-500"],
+  ["Wind direction", "winddir", "", 0, "ph-compass", "text-indigo-500"],
   ["Max gust", "maxdailygust", "mph", 1, "ph-wind", "text-amber-500"],
   ["Pressure", "baromrelin", "inHg", 2, "ph-gauge", "text-indigo-700"],
   ["UV", "uv", "", 1, "ph-sun", "text-rose-500"],
@@ -84,6 +81,8 @@ const UNIT_SINGULAR = {
   years: "year"
 };
 const showStats = {average: true, median: false};
+const tempMode = {outdoor: "actual", indoor: "actual"};
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 let source = "historical";
 let view = "charts";
 let requestId = 0;
@@ -108,6 +107,90 @@ if (window.Chart) {
 
 function isNum(value) {
   return typeof value === "number" && isFinite(value);
+}
+
+function cardinal(degrees) {
+  if (!isNum(degrees)) return "\u2014";
+  const circle = ((degrees % 360) + 360) % 360;
+  return COMPASS[Math.round(circle / 45) % 8];
+}
+
+function startOfWeek(date) {
+  const local = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  local.setDate(local.getDate() - local.getDay());
+  return local;
+}
+
+function dayLabel(date) {
+  const withYear = date.getFullYear() !== new Date().getFullYear();
+  return date.toLocaleDateString(undefined, withYear
+    ? {month: "short", day: "numeric", year: "numeric"}
+    : {month: "short", day: "numeric"});
+}
+
+function monthLabel(date) {
+  return date.toLocaleDateString(undefined, {month: "long", year: "numeric"});
+}
+
+function rainInView(records) {
+  const weeks = new Map();
+  const months = new Map();
+  let total = 0;
+  let seenTotal = false;
+  let previous = null;
+  for (const row of records) {
+    const when = new Date(row.dateutc);
+    if (isNaN(when.getTime())) continue;
+    if (isNum(row.weeklyrainin)) weeks.set(startOfWeek(when).getTime(), row.weeklyrainin);
+    if (isNum(row.monthlyrainin)) {
+      months.set(new Date(when.getFullYear(), when.getMonth(), 1).getTime(), row.monthlyrainin);
+    }
+    if (isNum(row.totalrainin)) {
+      if (seenTotal && row.totalrainin > previous) total += row.totalrainin - previous;
+      previous = row.totalrainin;
+      seenTotal = true;
+    }
+  }
+  const weekTimes = Array.from(weeks.keys()).sort((a, b) => a - b);
+  const monthTimes = Array.from(months.keys()).sort((a, b) => a - b);
+  let weekly = null;
+  if (weekTimes.length) {
+    weekly = 0;
+    for (const time of weekTimes) weekly += weeks.get(time);
+  }
+  let monthly = null;
+  if (monthTimes.length) {
+    monthly = 0;
+    for (const time of monthTimes) monthly += months.get(time);
+  }
+  let weeklyNote = "";
+  if (weekTimes.length === 1) weeklyNote = "Week of " + dayLabel(new Date(weekTimes[0]));
+  else if (weekTimes.length > 1) {
+    weeklyNote = "Weeks of " + dayLabel(new Date(weekTimes[0])) + " \u2013 " + dayLabel(new Date(weekTimes[weekTimes.length - 1]));
+  }
+  let monthlyNote = "";
+  if (monthTimes.length === 1) monthlyNote = monthLabel(new Date(monthTimes[0]));
+  else if (monthTimes.length > 1) {
+    monthlyNote = monthLabel(new Date(monthTimes[0])) + " \u2013 " + monthLabel(new Date(monthTimes[monthTimes.length - 1]));
+  }
+  return {
+    weekly: weekly,
+    weeklyNote: weeklyNote,
+    monthly: monthly,
+    monthlyNote: monthlyNote,
+    total: seenTotal ? total : null,
+    totalNote: seenTotal ? "Selected range" : ""
+  };
+}
+
+function shownSeries(spec) {
+  if (!spec.toggle) return spec.series;
+  return spec.series.filter((series) => series.mode === tempMode[spec.toggle]);
+}
+
+function formatSeriesValue(spec, series, value) {
+  if (series.cardinal) return cardinal(value);
+  return withUnit(fixed(value, seriesDigits(spec, series)), seriesUnit(spec, series));
 }
 
 function fixed(value, digits) {
@@ -180,42 +263,87 @@ function rowAt(records, ms) {
   return null;
 }
 
-function renderLatest(latest) {
+function readingCard(label, text, unit, icon, iconColor, note, compact) {
+  const card = document.createElement("div");
+  card.className = "bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center";
+  const heading = document.createElement("div");
+  heading.className = "flex items-center gap-2 text-slate-500 mb-1";
+  const iconNode = document.createElement("i");
+  iconNode.className = "ph " + icon + " " + iconColor + " text-lg";
+  const labelNode = document.createElement("span");
+  labelNode.className = "text-xs font-semibold uppercase tracking-wider";
+  labelNode.textContent = label;
+  heading.append(iconNode, labelNode);
+  card.append(heading);
+  const valueRow = document.createElement("div");
+  valueRow.className = "flex items-end";
+  if (text === "\u2014") {
+    valueRow.textContent = text;
+  } else {
+    const amount = document.createElement("span");
+    amount.className = (compact
+      ? "text-sm font-semibold leading-snug"
+      : "text-2xl font-bold") + " tracking-tight text-slate-900";
+    amount.textContent = text;
+    valueRow.append(amount);
+    if (unit) {
+      const unitNode = document.createElement("span");
+      unitNode.className = "text-sm font-medium text-slate-500 ml-1 mb-1";
+      unitNode.textContent = unit;
+      valueRow.append(unitNode);
+    }
+  }
+  card.append(valueRow);
+  if (note) {
+    const noteNode = document.createElement("p");
+    noteNode.className = "text-xs text-slate-500 mt-1";
+    noteNode.textContent = note;
+    card.append(noteNode);
+  }
+  return card;
+}
+
+function tempToggle(which) {
+  const group = document.createElement("div");
+  group.className = "ml-auto flex p-0.5 bg-slate-100 rounded-lg shrink-0";
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", which === "indoor" ? "Indoor temperature" : "Outdoor temperature");
+  for (const [mode, label] of [["actual", "Actual"], ["feels", "Feels like"]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.temp = which;
+    button.dataset.tempMode = mode;
+    const pressed = tempMode[which] === mode;
+    button.setAttribute("aria-pressed", pressed ? "true" : "false");
+    button.className = "px-2 py-1 text-xs font-medium rounded-md " + (pressed
+      ? "bg-white shadow-sm text-slate-900"
+      : "text-slate-600 hover:text-slate-900");
+    button.textContent = label;
+    group.append(button);
+  }
+  return group;
+}
+
+function renderLatest(body) {
+  const latest = body.latest || {};
+  const rain = rainInView(body.records || []);
   const root = document.getElementById("latest");
   root.replaceChildren();
   document.getElementById("updated").textContent = "Updated " + stampText(latest.dateutc);
+  const ranged = {
+    weeklyrainin: [rain.weekly, rain.weeklyNote],
+    monthlyrainin: [rain.monthly, rain.monthlyNote],
+    totalrainin: [rain.total, rain.totalNote]
+  };
 
   for (const [label, key, unit, digits, icon, iconColor] of STRIP) {
-    const value = digits == null ? stampText(latest[key]) : fixed(latest[key], digits);
-    const card = document.createElement("div");
-    card.className = "bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center";
-    const valueRow = document.createElement("div");
-    valueRow.className = "flex items-end";
-    if (value === "\u2014") {
-      valueRow.textContent = value;
-    } else {
-      const amount = document.createElement("span");
-      amount.className = digits == null
-        ? "text-sm font-semibold leading-snug tracking-tight text-slate-900"
-        : "text-2xl font-bold tracking-tight text-slate-900";
-      amount.textContent = value;
-      valueRow.append(amount);
-      if (unit) {
-        const unitNode = document.createElement("span");
-        unitNode.className = "text-sm font-medium text-slate-500 ml-1 mb-1";
-        unitNode.textContent = unit;
-        valueRow.append(unitNode);
-      }
+    if (ranged[key]) {
+      const [amount, note] = ranged[key];
+      root.append(readingCard(label, fixed(amount, 2), "in", icon, iconColor, note, false));
+      continue;
     }
-    card.innerHTML = `
-      <div class="flex items-center gap-2 text-slate-500 mb-1">
-        <i class="ph ${icon} ${iconColor} text-lg"></i>
-        <span class="text-xs font-semibold uppercase tracking-wider"></span>
-      </div>
-    `;
-    card.querySelector("span").textContent = label;
-    card.append(valueRow);
-    root.append(card);
+    const text = key === "winddir" ? cardinal(latest[key]) : (digits == null ? stampText(latest[key]) : fixed(latest[key], digits));
+    root.append(readingCard(label, text, unit, icon, iconColor, "", digits == null));
   }
 }
 
@@ -483,6 +611,25 @@ function selfCheckBreakSeriesGaps() {
   if (breakSeriesGaps(points.slice(0, 2)).length !== 2) throw new Error("short series");
 }
 
+function selfCheckRainAndCompass() {
+  if (cardinal(0) !== "N" || cardinal(360) !== "N" || cardinal(45) !== "NE") throw new Error("cardinal");
+  if (cardinal(256) !== "W" || cardinal(359) !== "N") throw new Error("cardinal wrap");
+  const rain = rainInView([
+    {dateutc: "2026-10-12T12:00:00Z", weeklyrainin: 1, monthlyrainin: 2, totalrainin: 10},
+    {dateutc: "2026-10-12T18:00:00Z", weeklyrainin: 1.5, monthlyrainin: 2.5, totalrainin: 10.25}
+  ]);
+  if (Math.abs(rain.total - 0.25) > 1e-9) throw new Error("total rain");
+  if (rain.weekly !== 1.5 || rain.monthly !== 2.5) throw new Error("period rain");
+  if (!rain.weeklyNote.startsWith("Week of ")) throw new Error("week label");
+  if (!rain.monthlyNote || rain.totalNote !== "Selected range") throw new Error("period label");
+  const spanned = rainInView([
+    {dateutc: "2026-10-04T12:00:00Z", weeklyrainin: 2, monthlyrainin: 3, totalrainin: 10},
+    {dateutc: "2026-10-12T12:00:00Z", weeklyrainin: 1, monthlyrainin: 4, totalrainin: 11}
+  ]);
+  if (spanned.weekly !== 3 || spanned.monthly !== 4 || spanned.total !== 1) throw new Error("spanned rain");
+  if (!spanned.weeklyNote.startsWith("Weeks of ")) throw new Error("week span");
+}
+
 function statSummary(spec, records, flags) {
   const block = document.createElement("div");
   block.className = "mt-3 bg-slate-50 rounded-lg p-3 border border-slate-100 flex flex-col gap-2";
@@ -544,20 +691,27 @@ function renderCharts(body) {
   const short = end - start <= TWO_DAYS;
   const crossesYear = start.getFullYear() !== end.getFullYear();
   for (const spec of CHARTS) {
+    const shown = shownSeries(spec);
     const figure = document.createElement("figure");
     figure.className = "bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col";
     const headerDiv = document.createElement("div");
     headerDiv.className = "flex items-center gap-2 mb-4";
-    headerDiv.innerHTML = `
-      <div class="p-2 bg-brand-50 rounded-lg text-brand-600">
-        <i class="ph ${spec.icon} text-xl"></i>
-      </div>
-      <figcaption class="text-lg font-semibold text-slate-800"></figcaption>
-    `;
-    headerDiv.querySelector("figcaption").textContent = spec.title;
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "flex items-center gap-2 min-w-0";
+    const iconBox = document.createElement("div");
+    iconBox.className = "p-2 bg-brand-50 rounded-lg text-brand-600";
+    const icon = document.createElement("i");
+    icon.className = "ph " + spec.icon + " text-xl";
+    iconBox.append(icon);
+    const caption = document.createElement("figcaption");
+    caption.className = "text-lg font-semibold text-slate-800";
+    caption.textContent = spec.title;
+    titleWrap.append(iconBox, caption);
+    headerDiv.append(titleWrap);
+    if (spec.toggle) headerDiv.append(tempToggle(spec.toggle));
     figure.append(headerDiv);
 
-    const points = spec.series.map((series) => records.filter((row) => isNum(row[series.key])));
+    const points = shown.map((series) => records.filter((row) => isNum(row[series.key])));
     const count = points.reduce((sum, series) => sum + series.length, 0);
     if (!count) {
       const empty = document.createElement("div");
@@ -577,10 +731,11 @@ function renderCharts(body) {
     figure.append(box);
 
     const flags = showStats;
-    if (flags.average || flags.median) figure.append(statSummary(spec, records, flags));
+    const draw = Object.assign({}, spec, {series: shown});
+    if (!spec.cardinal && (flags.average || flags.median)) figure.append(statSummary(draw, records, flags));
     root.append(figure);
 
-    const datasets = spec.series.map((series, index) => ({
+    const datasets = shown.map((series, index) => ({
       label: series.label,
       data: breakSeriesGaps(records.map((row) => ({
         x: row.dateutc,
@@ -598,7 +753,7 @@ function renderCharts(body) {
       borderWidth: 2,
       tension: 0.1
     }));
-    spec.series.forEach((series, index) => {
+    if (!spec.cardinal) shown.forEach((series, index) => {
       const values = numericValues(records, series.key);
       if (!values.length) return;
       const axis = spec.independent && index > 0 ? "y1" : "y";
@@ -620,10 +775,16 @@ function renderCharts(body) {
           }
         }
       },
-      y: yScale(seriesUnit(spec, spec.series[0]))
+      y: yScale(seriesUnit(spec, shown[0]))
     };
-    if (spec.independent && spec.series[1]) {
-      scales.y1 = yScale(seriesUnit(spec, spec.series[1]), "right");
+    if (spec.cardinal) {
+      scales.y.min = 0;
+      scales.y.max = 360;
+      scales.y.ticks.stepSize = 45;
+      scales.y.ticks.callback = (value) => cardinal(Number(value));
+    }
+    if (spec.independent && shown[1]) {
+      scales.y1 = yScale(seriesUnit(spec, shown[1]), "right");
     }
     const chart = new Chart(canvas, {
       type: "line",
@@ -655,12 +816,9 @@ function renderCharts(body) {
                 const ms = items[0].parsed.x;
                 const lines = [formatTooltipTime(new Date(ms))];
                 const row = rowAt(records, ms);
-                for (const series of spec.series) {
+                for (const series of shown) {
                   const value = row ? row[series.key] : null;
-                  lines.push(series.label + ": " + withUnit(
-                    fixed(value, seriesDigits(spec, series)),
-                    seriesUnit(spec, series)
-                  ));
+                  lines.push(series.label + ": " + formatSeriesValue(spec, series, value));
                 }
                 return lines;
               },
@@ -738,10 +896,7 @@ function renderTable(records) {
     for (const column of columns) {
       const td = document.createElement("td");
       td.className = "px-6 py-3 text-sm text-slate-600 text-right whitespace-nowrap tabular-nums";
-      td.textContent = withUnit(
-        fixed(row[column.series.key], seriesDigits(column.spec, column.series)),
-        seriesUnit(column.spec, column.series)
-      );
+      td.textContent = formatSeriesValue(column.spec, column.series, row[column.series.key]);
       tr.append(td);
     }
     const rainCell = document.createElement("td");
@@ -764,7 +919,7 @@ function render(body) {
   errorNode.hidden = true;
   document.getElementById("status").textContent = statusText(body);
   updateFilterLabel();
-  renderLatest(body.latest || {});
+  renderLatest(body);
   const chartsPanel = document.getElementById("charts");
   const tablePanel = document.getElementById("table-wrap");
   if (view === "table") {
@@ -935,6 +1090,13 @@ document.getElementById("auto-refresh").addEventListener("change", applyAutoRefr
 document.getElementById("auto-refresh-seconds").addEventListener("change", applyAutoRefresh);
 applyAutoRefresh();
 
+document.getElementById("charts").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-temp-mode]");
+  if (!button) return;
+  tempMode[button.dataset.temp] = button.dataset.tempMode;
+  if (lastBody && view === "charts") renderCharts(lastBody);
+});
+
 document.getElementById("view").addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
@@ -946,6 +1108,7 @@ document.getElementById("view").addEventListener("click", (event) => {
 press("source", "source", source);
 press("view", "view", view);
 selfCheckBreakSeriesGaps();
+selfCheckRainAndCompass();
 
 if (!window.Chart) {
   showError(new Error("Chart library failed to load."));
