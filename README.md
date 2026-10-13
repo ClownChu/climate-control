@@ -107,13 +107,16 @@ Either child can run on its own:
 ```bash
 python3 -m src.weather.server [port] [station-dir]
 python3 -m src.weather.history [historical-dir]
+python3 -m src.weather.recalc [station-dir]
 ```
+
+`recalc` rewrites station buckets in place with dew point, feels like, and last rain. The default directory is `data/station`.
 
 ---
 
 ## Weather data
 
-Ambient Weather station uploads are `GET /data/report?...`. `PASSKEY` is removed before the reading is stored. Each reading is appended to a UTC 12-hour JSONL bucket, `YYYY-MM-DD_00.jsonl` or `YYYY-MM-DD_12.jsonl`, and `_latest.json` is replaced.
+Ambient Weather station uploads are `GET /data/report?...`. `PASSKEY` is removed before the reading is stored. Dew point, feels like, and last rain are computed, then the reading is appended to a UTC 12-hour JSONL bucket, `YYYY-MM-DD_00.jsonl` or `YYYY-MM-DD_12.jsonl`, and `_latest.json` is replaced.
 
 The backfill writes the same bucket layout under `data/historical`, plus a `checkpoint` file (Unix milliseconds of the newest saved row). Collector settings that are safe to commit — API base URL, 6-hour windows, lookback, retry, port, directories — live in `src/config/weather_config.yml`. Keys stay in `.env`.
 
@@ -136,6 +139,7 @@ python3 run.py --self-check
 python3 control.py --self-check
 python3 -m src.weather.server --self-check
 python3 -m src.weather.history --self-check
+python3 -m src.weather.recalc --self-check
 python3 -m src.utils.log
 ```
 

@@ -1,7 +1,11 @@
 const CHARTS = [
   {title: "Temperature", icon: "ph-thermometer", unit: "\u00b0F", digits: 1, series: [
     {key: "tempf", label: "Outdoor", color: "#f97316", average: "#aff916", median: "#f916c2"},
-    {key: "tempinf", label: "Indoor", color: "#3b82f6", average: "#9f3bf6", median: "#3bf690"}
+    {key: "feelsLike", label: "Feels like", color: "#fb7185", average: "#881337", median: "#fda4af", digits: 2},
+    {key: "dewPoint", label: "Dew point", color: "#06b6d4", average: "#155e75", median: "#67e8f9", digits: 2},
+    {key: "tempinf", label: "Indoor", color: "#3b82f6", average: "#9f3bf6", median: "#3bf690"},
+    {key: "feelsLikein", label: "Indoor feels like", color: "#818cf8", average: "#312e81", median: "#c7d2fe"},
+    {key: "dewPointin", label: "Indoor dew point", color: "#2dd4bf", average: "#115e59", median: "#99f6e4"}
   ]},
   {title: "Humidity", icon: "ph-drop", unit: "%", digits: 0, series: [
     {key: "humidity", label: "Outdoor", color: "#14b8a6", average: "#1434b8", median: "#41b814"},
@@ -9,11 +13,23 @@ const CHARTS = [
   ]},
   {title: "Wind", icon: "ph-wind", unit: "mph", digits: 1, series: [
     {key: "windspeedmph", label: "Speed", color: "#0ea5e9", average: "#400ee9", median: "#0ee92d"},
-    {key: "windgustmph", label: "Gust", color: "#f59e0b", average: "#76f50b", median: "#f50b89"}
+    {key: "windgustmph", label: "Gust", color: "#f59e0b", average: "#76f50b", median: "#f50b89"},
+    {key: "maxdailygust", label: "Max gust", color: "#ef4444", average: "#7f1d1d", median: "#fca5a5"}
+  ]},
+  {title: "Wind direction", icon: "ph-compass", unit: "\u00b0", digits: 0, series: [
+    {key: "winddir", label: "Direction", color: "#6366f1", average: "#312e81", median: "#a5b4fc"}
   ]},
   {title: "Rain", icon: "ph-cloud-rain", unit: "in", digits: 2, series: [
     {key: "hourlyrainin", label: "Hourly", color: "#2563eb", average: "#9d25eb", median: "#25eb8c"},
-    {key: "dailyrainin", label: "Daily", color: "#4f46e5", average: "#e146e5", median: "#46e5d4"}
+    {key: "dailyrainin", label: "Daily", color: "#4f46e5", average: "#e146e5", median: "#46e5d4"},
+    {key: "eventrainin", label: "Event", color: "#0f766e", average: "#134e4a", median: "#5eead4"}
+  ]},
+  {title: "Weekly / monthly rain", icon: "ph-calendar", unit: "in", digits: 2, series: [
+    {key: "weeklyrainin", label: "Weekly", color: "#0284c7", average: "#0c4a6e", median: "#7dd3fc"},
+    {key: "monthlyrainin", label: "Monthly", color: "#7c3aed", average: "#4c1d95", median: "#c4b5fd"}
+  ]},
+  {title: "Total rain", icon: "ph-stack", unit: "in", digits: 2, series: [
+    {key: "totalrainin", label: "Total", color: "#0f766e", average: "#134e4a", median: "#99f6e4"}
   ]},
   {title: "Pressure", icon: "ph-gauge", unit: "inHg", digits: 2, series: [
     {key: "baromrelin", label: "Relative", color: "#4338ca", average: "#c938ca", median: "#38cabd"}
@@ -26,12 +42,23 @@ const CHARTS = [
 
 const STRIP = [
   ["Outdoor", "tempf", "\u00b0F", 1, "ph-thermometer", "text-orange-500"],
+  ["Feels like", "feelsLike", "\u00b0F", 2, "ph-thermometer-hot", "text-rose-500"],
+  ["Dew point", "dewPoint", "\u00b0F", 2, "ph-drop", "text-cyan-600"],
   ["Indoor", "tempinf", "\u00b0F", 1, "ph-house", "text-blue-500"],
-  ["Humidity", "humidity", "%", 0, "ph-drop", "text-teal-500"],
+  ["Indoor feels like", "feelsLikein", "\u00b0F", 1, "ph-thermometer-hot", "text-indigo-500"],
+  ["Indoor dew point", "dewPointin", "\u00b0F", 1, "ph-drop", "text-teal-500"],
+  ["Humidity", "humidity", "%", 0, "ph-drop", "text-teal-600"],
   ["Wind", "windspeedmph", "mph", 1, "ph-wind", "text-sky-500"],
-  ["Daily rain", "dailyrainin", "in", 2, "ph-cloud-rain", "text-indigo-500"],
+  ["Wind direction", "winddir", "\u00b0", 0, "ph-compass", "text-indigo-500"],
+  ["Max gust", "maxdailygust", "mph", 1, "ph-wind", "text-amber-500"],
   ["Pressure", "baromrelin", "inHg", 2, "ph-gauge", "text-indigo-700"],
-  ["UV", "uv", "", 1, "ph-sun", "text-rose-500"]
+  ["UV", "uv", "", 1, "ph-sun", "text-rose-500"],
+  ["Daily rain", "dailyrainin", "in", 2, "ph-cloud-rain", "text-indigo-500"],
+  ["Event rain", "eventrainin", "in", 2, "ph-cloud-rain", "text-sky-600"],
+  ["Weekly rain", "weeklyrainin", "in", 2, "ph-calendar", "text-sky-700"],
+  ["Monthly rain", "monthlyrainin", "in", 2, "ph-calendar", "text-violet-600"],
+  ["Total rain", "totalrainin", "in", 2, "ph-stack", "text-teal-700"],
+  ["Last rain", "lastRain", "", null, "ph-clock", "text-slate-500"]
 ];
 
 const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
@@ -159,7 +186,7 @@ function renderLatest(latest) {
   document.getElementById("updated").textContent = "Updated " + stampText(latest.dateutc);
 
   for (const [label, key, unit, digits, icon, iconColor] of STRIP) {
-    const value = fixed(latest[key], digits);
+    const value = digits == null ? stampText(latest[key]) : fixed(latest[key], digits);
     const card = document.createElement("div");
     card.className = "bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center";
     const valueRow = document.createElement("div");
@@ -168,7 +195,9 @@ function renderLatest(latest) {
       valueRow.textContent = value;
     } else {
       const amount = document.createElement("span");
-      amount.className = "text-2xl font-bold tracking-tight text-slate-900";
+      amount.className = digits == null
+        ? "text-sm font-semibold leading-snug tracking-tight text-slate-900"
+        : "text-2xl font-bold tracking-tight text-slate-900";
       amount.textContent = value;
       valueRow.append(amount);
       if (unit) {
@@ -693,6 +722,11 @@ function renderTable(records) {
       headRow.append(cell);
     }
   }
+  const rainHeader = document.createElement("th");
+  rainHeader.scope = "col";
+  rainHeader.className = "px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap";
+  rainHeader.textContent = "Last rain";
+  headRow.append(rainHeader);
   thead.append(headRow);
   for (const row of records) {
     const tr = document.createElement("tr");
@@ -710,6 +744,10 @@ function renderTable(records) {
       );
       tr.append(td);
     }
+    const rainCell = document.createElement("td");
+    rainCell.className = "px-6 py-3 text-sm text-slate-600 text-right whitespace-nowrap";
+    rainCell.textContent = stampText(row.lastRain);
+    tr.append(rainCell);
     tbody.append(tr);
   }
 }
