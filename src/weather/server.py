@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from src.utils.log import LOG_NAMES, configure_logging, service_logs
+from src.utils.weather_calc import apply_derived
 from src.utils.weather_config import DEFAULT_HISTORY, DEFAULT_PORT
 from src.utils.weather_store import (
     append_record,
@@ -32,13 +33,24 @@ SERVICES_PAGE = _ROOT / "services.html"
 SERVICES_SCRIPT = _ROOT / "services.js"
 _CHART_FIELDS = (
     "tempf",
+    "feelsLike",
+    "dewPoint",
     "tempinf",
+    "feelsLikein",
+    "dewPointin",
     "humidity",
     "humidityin",
+    "winddir",
     "windspeedmph",
     "windgustmph",
+    "maxdailygust",
     "hourlyrainin",
+    "eventrainin",
     "dailyrainin",
+    "weeklyrainin",
+    "monthlyrainin",
+    "totalrainin",
+    "lastRain",
     "baromrelin",
     "solarradiation",
     "uv",
@@ -84,6 +96,7 @@ def ingest_reading(history_dir, query):
     reading = reading_from_query(query)
     if reading is None:
         return 400, {"ok": False}
+    apply_derived(reading, read_snapshot(latest_path(history_dir)))
     append_record(bucket_path(history_dir, reading["dateutc"]), reading)
     write_latest(latest_path(history_dir), reading)
     return 200, {"ok": True}
@@ -314,6 +327,8 @@ def self_check():
         assert "PASSKEY" not in morning and "PASSKEY" not in afternoon
         stored = json.loads(afternoon.strip().splitlines()[-1])
         assert stored["tempf"] == 61.0 and stored["humidity"] == 99
+        assert stored["feelsLike"] == 61.0
+        assert "lastRain" not in stored
 
         assert latest_path(history) == history / "_latest.json"
         latest = json.loads(latest_path(history).read_text(encoding="utf-8"))
@@ -465,6 +480,44 @@ def self_check():
         assert long_body["records"][0]["dateutc"] == "2026-01-01T00:00:00Z"
         assert long_body["records"][-1]["dateutc"] == last_stamp
 
+    with tempfile.TemporaryDirectory() as directory:
+        history = Path(directory) / "derived"
+        wet = (
+            "stationtype=AMBWeatherV4.3.8&PASSKEY=fake-passkey"
+            "&dateutc=2026-10-12+12:27:20&tempf=64.4&humidity=76"
+            "&hourlyrainin=0.01&tempinf=67.8&humidityin=68"
+        )
+        status, payload = ingest_reading(history, wet)
+        assert status == 200 and payload == {"ok": True}
+        stored = json.loads((history / "2026-10-12_12.jsonl").read_text(encoding="utf-8"))
+        assert stored["feelsLike"] == 64.4
+        assert stored["dewPoint"] == 56.66
+        assert stored["feelsLikein"] == 67.8
+        assert stored["dewPointin"] == 56.8
+        assert stored["lastRain"] == "2026-10-12T12:27:00Z"
+        dry = (
+            "stationtype=AMBWeatherV4.3.8&PASSKEY=fake-passkey"
+            "&dateutc=2026-10-12+12:28:05&tempf=68.4&humidity=35"
+            "&windspeedmph=0&hourlyrainin=0"
+        )
+        assert ingest_reading(history, dry)[0] == 200
+        chill = (
+            "stationtype=AMBWeatherV4.3.8&PASSKEY=fake-passkey"
+            "&dateutc=2026-10-12+12:29:00&tempf=43.9&humidity=50"
+            "&windspeedmph=4&hourlyrainin=0"
+        )
+        assert ingest_reading(history, chill)[0] == 200
+        lines = (history / "2026-10-12_12.jsonl").read_text(encoding="utf-8").splitlines()
+        warm = json.loads(lines[1])
+        chilled = json.loads(lines[2])
+        assert warm["feelsLike"] == 66.59
+        assert warm["lastRain"] == "2026-10-12T12:27:00Z"
+        assert chilled["feelsLike"] == 41.82
+        assert chilled["lastRain"] == "2026-10-12T12:27:00Z"
+        latest = json.loads(latest_path(history).read_text(encoding="utf-8"))
+        assert latest["feelsLike"] == 41.82
+        assert latest["lastRain"] == "2026-10-12T12:27:00Z"
+
     handler = WeatherHandler.__new__(WeatherHandler)
     handler.path = "/dashboard"
     handler.wfile = io.BytesIO()
@@ -477,12 +530,27 @@ def self_check():
     assert b'data-source="historical"' in page
     assert b'data-source="station"' in page
     assert b'href="/services"' in page
-    assert b"xl:grid-cols-7" in page
+    assert b"xl:grid-cols-6" in page
     handler.wfile = io.BytesIO()
     handler.path = "/dashboard.js"
     handler.do_GET()
     script = handler.wfile.getvalue()
     assert b"/dashboard/series" in script
+    for name in (
+        "feelsLike",
+        "dewPoint",
+        "feelsLikein",
+        "dewPointin",
+        "winddir",
+        "maxdailygust",
+        "eventrainin",
+        "weeklyrainin",
+        "monthlyrainin",
+        "totalrainin",
+        "lastRain",
+    ):
+        assert name in _CHART_FIELDS
+        assert name.encode() in script
     assert b"spanGaps: false" in script
     assert b"breakSeriesGaps" in script
     assert b'source = "historical"' in script
