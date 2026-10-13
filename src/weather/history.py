@@ -134,7 +134,11 @@ def load_stamps(path):
             line = line.strip()
             if not line:
                 continue
-            stamps.add(json.loads(line).get("dateutc"))
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            stamps.add(record.get("dateutc"))
     return stamps
 
 
@@ -489,6 +493,13 @@ def self_check():
         pass
     assert failed["n"] == 2
     assert gaps == [interval]
+
+    with tempfile.TemporaryDirectory() as directory:
+        bucket = Path(directory) / "2026-10-11_12.jsonl"
+        append_record(bucket, {"dateutc": "2026-10-11T15:00:00Z"})
+        with bucket.open("a", encoding="utf-8") as handle:
+            handle.write("\x00" * 8 + "\n")
+        assert load_stamps(bucket) == {"2026-10-11T15:00:00Z"}
 
     print("self-check ok")
 

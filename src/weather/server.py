@@ -334,6 +334,15 @@ def self_check():
             {"dateutc": "2026-10-11T11:40:00Z", "tempf": 55.5, "humidity": 90},
             {"dateutc": "2026-10-11T15:10:16Z", "tempf": 61.0, "humidity": 99},
         ]
+        with (history / "2026-10-11_12.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write("\x00" * 8 + "\n")
+        kept, _opened = query_history(
+            history,
+            "2026-10-11T11:30:00Z",
+            "2026-10-11T16:00:00Z",
+            ["tempf", "humidity"],
+        )
+        assert kept == records
 
         _skipped, afternoon_files = query_history(
             history, "2026-10-11T13:00:00Z", "2026-10-11T14:00:00Z", None

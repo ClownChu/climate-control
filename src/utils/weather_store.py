@@ -124,7 +124,10 @@ def query_history(history_dir, start, end, fields):
                 line = line.strip()
                 if not line:
                     continue
-                record = json.loads(line)
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
                 stamp = record.get("dateutc", "")
                 if start is not None and stamp < start:
                     continue
