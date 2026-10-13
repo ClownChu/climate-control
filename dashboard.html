@@ -59,25 +59,39 @@
     [hidden] {
       display: none !important;
     }
+    #graphics.is-loading {
+      min-height: 16rem;
+    }
+    #graphics.is-loading #charts,
+    #graphics.is-loading #table-wrap {
+      opacity: 0.4;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body class="min-h-screen flex flex-col">
 
   <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
     <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
-      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
-          <h1 class="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <i class="ph-fill ph-cloud-sun text-brand-500 text-2xl"></i>
-            Station Weather
-          </h1>
-          <p id="status" class="text-sm text-slate-500 mt-1 font-medium"></p>
-        </div>
+      <div class="flex flex-wrap items-center gap-4">
+        <h1 class="text-xl font-bold text-slate-900 flex items-center gap-2">
+          <i class="ph-fill ph-cloud-sun text-brand-500 text-2xl"></i>
+          Station Weather
+        </h1>
+        <nav class="flex items-center gap-1 text-sm font-medium" aria-label="Sections">
+          <a href="/dashboard" class="px-3 py-1 rounded-md bg-slate-900 text-white" aria-current="page">Weather</a>
+          <a href="/services" class="px-3 py-1 rounded-md text-slate-600 hover:bg-slate-100">Services</a>
+        </nav>
+      </div>
+    </div>
+  </header>
 
-        <div class="flex flex-wrap items-center gap-3 sm:gap-4 controls">
+  <main class="flex-1 max-w-[1600px] mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
+    <section class="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200" aria-label="Dataset and filters">
+      <div class="flex flex-wrap items-center justify-center gap-3 sm:gap-4 controls">
           <div class="flex p-1 bg-slate-100 rounded-lg shadow-inner" id="source" role="group" aria-label="Dataset">
-            <button type="button" data-source="ambient" class="px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200" aria-pressed="true">Ambient</button>
-            <button type="button" data-source="history" class="px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200" aria-pressed="false">History</button>
+            <button type="button" data-source="historical" class="px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200" aria-pressed="true">Historical</button>
+            <button type="button" data-source="station" class="px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200" aria-pressed="false">Station</button>
           </div>
 
           <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-lg shadow-sm p-1 stepper relative" role="group" aria-label="Adjust the time range">
@@ -130,7 +144,7 @@
           <div class="flex items-center gap-3">
             <div class="flex items-center gap-4 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm text-sm" id="stats">
               <label class="flex items-center gap-2 cursor-pointer text-slate-600 hover:text-slate-900">
-                <input type="checkbox" id="show-average" class="rounded text-brand-500 focus:ring-brand-500">
+                <input type="checkbox" id="show-average" checked class="rounded text-brand-500 focus:ring-brand-500">
                 <span class="font-medium">Avg</span>
               </label>
               <label class="flex items-center gap-2 cursor-pointer text-slate-600 hover:text-slate-900">
@@ -139,38 +153,58 @@
               </label>
             </div>
 
-            <div class="flex p-1 bg-slate-100 rounded-lg shadow-inner" id="view" role="group" aria-label="View">
-              <button type="button" data-view="charts" aria-pressed="true" class="px-3 py-1.5 text-sm rounded-md transition-all duration-200" title="Charts View"><i class="ph ph-chart-line-up text-lg"></i></button>
-              <button type="button" data-view="table" aria-pressed="false" class="px-3 py-1.5 text-sm rounded-md transition-all duration-200" title="Table View"><i class="ph ph-table text-lg"></i></button>
+            <div class="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm text-sm">
+              <label class="flex items-center gap-2 cursor-pointer text-slate-600 hover:text-slate-900">
+                <input type="checkbox" id="auto-refresh" checked class="rounded text-brand-500 focus:ring-brand-500">
+                <span class="font-medium">Every</span>
+              </label>
+              <input type="number" id="auto-refresh-seconds" min="1" step="1" value="60" inputmode="numeric" aria-label="Refresh interval in seconds" class="w-16 px-2 py-1 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+              <span class="font-medium text-slate-600">s</span>
             </div>
           </div>
-        </div>
       </div>
-    </div>
-  </header>
+    </section>
 
-  <div class="max-w-[1600px] mx-auto w-full px-4 sm:px-6 lg:px-8 mt-4">
     <p class="bg-red-50 text-red-700 px-4 py-3 rounded-lg border border-red-100 text-sm font-medium flex items-center gap-2" id="error" hidden>
       <i class="ph ph-warning-circle text-lg"></i>
       <span id="error-msg"></span>
     </p>
-  </div>
 
-  <main class="flex-1 max-w-[1600px] mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
-    <section id="latest" aria-label="Current readings" class="grid grid-cols-2 md:grid-cols-4 lg:flex lg:flex-wrap gap-4"></section>
+    <section id="latest" aria-label="Current readings" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4"></section>
     <div id="reset-row" class="flex justify-end" hidden>
       <button type="button" id="back" class="px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 flex items-center gap-1.5 transition-colors">
         <i class="ph ph-arrow-counter-clockwise"></i> Reset view
       </button>
     </div>
-    <section id="charts" aria-label="Charts" class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12"></section>
-    <div id="table-wrap" hidden class="pb-12 h-full flex flex-col">
-      <div id="table-scroll" class="overflow-auto bg-white border border-slate-200 rounded-xl shadow-sm flex-1 max-h-[70vh]">
-        <table class="min-w-full divide-y divide-slate-200">
-          <thead class="bg-slate-50 sticky top-0 z-10 shadow-sm" id="table-head"></thead>
-          <tbody class="bg-white divide-y divide-slate-100" id="table-body"></tbody>
-        </table>
+    <div class="flex flex-col gap-2">
+    <div class="flex items-center justify-between gap-3">
+      <div class="flex items-center gap-2 min-w-0">
+        <p id="status" class="text-xs text-slate-500 font-medium"></p>
+        <span id="updated" class="text-xs text-slate-400"></span>
+        <button type="button" id="refresh" class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors shrink-0" aria-label="Refresh data">
+          <i class="ph ph-arrow-clockwise text-lg" aria-hidden="true"></i>
+        </button>
       </div>
+      <div class="flex p-1 bg-slate-100 rounded-lg shadow-inner shrink-0" id="view" role="group" aria-label="View">
+        <button type="button" data-view="charts" aria-pressed="true" class="px-3 py-1.5 text-sm rounded-md transition-all duration-200" title="Charts View"><i class="ph ph-chart-line-up text-lg"></i></button>
+        <button type="button" data-view="table" aria-pressed="false" class="px-3 py-1.5 text-sm rounded-md transition-all duration-200" title="Table View"><i class="ph ph-table text-lg"></i></button>
+      </div>
+    </div>
+    <div id="graphics" class="relative" aria-busy="false">
+      <section id="charts" aria-label="Charts" class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12"></section>
+      <div id="table-wrap" hidden class="pb-12 h-full flex flex-col">
+        <div id="table-scroll" class="overflow-auto bg-white border border-slate-200 rounded-xl shadow-sm flex-1 max-h-[70vh]">
+          <table class="min-w-full divide-y divide-slate-200">
+            <thead class="bg-slate-50 sticky top-0 z-10 shadow-sm" id="table-head"></thead>
+            <tbody class="bg-white divide-y divide-slate-100" id="table-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="loading" class="absolute inset-0 z-20 flex items-center justify-center" hidden>
+        <i class="ph ph-circle-notch text-4xl text-brand-600 animate-spin" aria-hidden="true"></i>
+        <span class="sr-only">Loading readings</span>
+      </div>
+    </div>
     </div>
   </main>
 

@@ -56,10 +56,12 @@ const UNIT_SINGULAR = {
   months: "month",
   years: "year"
 };
-const showStats = {average: false, median: false};
-let source = "ambient";
+const showStats = {average: true, median: false};
+let source = "historical";
 let view = "charts";
 let requestId = 0;
+let loading = false;
+let refreshTimer = 0;
 let lastBody = null;
 let charts = [];
 let filter = {kind: "last", count: 24, unit: "hours", from: "", to: ""};
@@ -154,22 +156,12 @@ function rowAt(records, ms) {
 function renderLatest(latest) {
   const root = document.getElementById("latest");
   root.replaceChildren();
-  const updateCard = document.createElement("div");
-  updateCard.className = "bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center min-w-[140px] flex-1 lg:flex-none";
-  updateCard.innerHTML = `
-    <div class="flex items-center gap-2 text-slate-500 mb-1">
-      <i class="ph ph-clock text-lg"></i>
-      <span class="text-xs font-semibold uppercase tracking-wider">Updated</span>
-    </div>
-    <div class="text-sm font-medium text-slate-900"></div>
-  `;
-  updateCard.querySelector("div.text-sm").textContent = stampText(latest.dateutc);
-  root.append(updateCard);
+  document.getElementById("updated").textContent = "Updated " + stampText(latest.dateutc);
 
   for (const [label, key, unit, digits, icon, iconColor] of STRIP) {
     const value = fixed(latest[key], digits);
     const card = document.createElement("div");
-    card.className = "bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center min-w-[140px] flex-1 lg:flex-none";
+    card.className = "bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center";
     const valueRow = document.createElement("div");
     valueRow.className = "flex items-end";
     if (value === "\u2014") {
@@ -392,6 +384,76 @@ function medianOf(values) {
   return (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+function isoAt(ms) {
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function breakSeriesGaps(points) {
+  if (points.length < 3) return points;
+  const times = points.map((point) => Date.parse(point.x));
+  const gaps = [];
+  for (let i = 1; i < times.length; i++) {
+    const gap = times[i] - times[i - 1];
+    if (gap > 0) gaps.push(gap);
+  }
+  if (!gaps.length) return points;
+  const limit = medianOf(gaps) * 2;
+  const broken = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const gap = times[i] - times[i - 1];
+    if (gap > limit) broken.push({x: isoAt(times[i - 1] + gap / 2), y: null});
+    broken.push(points[i]);
+  }
+  return broken;
+}
+
+function selfCheckBreakSeriesGaps() {
+  const start = Date.parse("2026-01-01T00:00:00Z");
+  const points = [];
+  for (let i = 0; i < 6; i++) points.push({x: isoAt(start + i * 300000), y: i});
+  points.push({x: isoAt(start + 5 * 300000 + 7200000), y: 99});
+  const broken = breakSeriesGaps(points);
+  if (broken.length !== points.length + 1) throw new Error("expected one gap break");
+  if (broken[broken.length - 2].y !== null) throw new Error("null belongs in the hole");
+  if (breakSeriesGaps(points.slice(0, 6)).length !== 6) throw new Error("even spacing stays intact");
+  if (breakSeriesGaps(points.slice(0, 2)).length !== 2) throw new Error("short series");
+}
+
+function isoStamp(ms) {
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function breakSeriesGaps(points) {
+  if (points.length < 3) return points;
+  const times = points.map((point) => Date.parse(point.x));
+  const gaps = [];
+  for (let i = 1; i < times.length; i++) {
+    const gap = times[i] - times[i - 1];
+    if (gap > 0) gaps.push(gap);
+  }
+  if (!gaps.length) return points;
+  const limit = medianOf(gaps) * 2;
+  const broken = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const gap = times[i] - times[i - 1];
+    if (gap > limit) broken.push({x: isoStamp(times[i - 1] + gap / 2), y: null});
+    broken.push(points[i]);
+  }
+  return broken;
+}
+
+function selfCheckBreakSeriesGaps() {
+  const start = Date.parse("2026-01-01T00:00:00Z");
+  const points = [];
+  for (let i = 0; i < 6; i++) points.push({x: isoStamp(start + i * 300000), y: i});
+  points.push({x: isoStamp(start + 5 * 300000 + 7200000), y: 99});
+  const broken = breakSeriesGaps(points);
+  if (broken.length !== points.length + 1) throw new Error("expected one gap break");
+  if (broken[broken.length - 2].y !== null) throw new Error("null belongs in the hole");
+  if (breakSeriesGaps(points.slice(0, 6)).length !== 6) throw new Error("even spacing stays intact");
+  if (breakSeriesGaps(points.slice(0, 2)).length !== 2) throw new Error("short series");
+}
+
 function statSummary(spec, records, flags) {
   const block = document.createElement("div");
   block.className = "mt-3 bg-slate-50 rounded-lg p-3 border border-slate-100 flex flex-col gap-2";
@@ -491,14 +553,14 @@ function renderCharts(body) {
 
     const datasets = spec.series.map((series, index) => ({
       label: series.label,
-      data: records.map((row) => ({
+      data: breakSeriesGaps(records.map((row) => ({
         x: row.dateutc,
         y: isNum(row[series.key]) ? row[series.key] : null
-      })),
+      }))),
       borderColor: series.color,
       backgroundColor: series.color + "20",
       yAxisID: spec.independent && index > 0 ? "y1" : "y",
-      spanGaps: true,
+      spanGaps: false,
       pointRadius: 0,
       pointHoverRadius: 4,
       pointHoverBackgroundColor: "#fff",
@@ -653,7 +715,7 @@ function renderTable(records) {
 }
 
 function statusText(body) {
-  const name = body.source === "history" ? "History" : "Ambient";
+  const name = body.source === "station" ? "Station" : "Historical";
   const shown = Array.isArray(body.records) ? body.records.length : 0;
   if (body.step > 1) return name + " \u00b7 " + shown + " of " + body.total + " readings";
   return name + " \u00b7 " + shown + " readings";
@@ -711,18 +773,46 @@ function readMenuFilter() {
   return {kind: "last", count: count, unit: unit, from: "", to: ""};
 }
 
+function setLoading(on) {
+  loading = on;
+  const graphics = document.getElementById("graphics");
+  graphics.classList.toggle("is-loading", on);
+  graphics.setAttribute("aria-busy", on ? "true" : "false");
+  document.getElementById("loading").hidden = !on;
+  document.querySelector("#refresh i").classList.toggle("animate-spin", on);
+}
+
+function applyAutoRefresh() {
+  clearInterval(refreshTimer);
+  refreshTimer = 0;
+  const seconds = Number(document.getElementById("auto-refresh-seconds").value);
+  if (!document.getElementById("auto-refresh").checked) return;
+  if (!Number.isInteger(seconds) || seconds < 1) return;
+  refreshTimer = setInterval(() => {
+    if (!loading) load().catch(showError);
+  }, seconds * 1000);
+}
+
 async function load() {
   const id = ++requestId;
-  const bounds = currentBounds();
-  const params = new URLSearchParams();
-  params.set("source", source);
-  params.set("from", toUtcParam(bounds.from));
-  params.set("to", toUtcParam(bounds.to));
-  const response = await fetch("/dashboard/series?" + params.toString());
-  if (!response.ok) throw new Error("Series request failed (" + response.status + ")");
-  const body = await response.json();
-  if (id !== requestId) return;
-  render(body);
+  setLoading(true);
+  try {
+    const bounds = currentBounds();
+    const params = new URLSearchParams();
+    params.set("source", source);
+    params.set("from", toUtcParam(bounds.from));
+    params.set("to", toUtcParam(bounds.to));
+    const response = await fetch("/dashboard/series?" + params.toString());
+    if (!response.ok) throw new Error("Series request failed (" + response.status + ")");
+    const body = await response.json();
+    if (id !== requestId) return;
+    render(body);
+  } catch (error) {
+    if (id !== requestId) return;
+    showError(error);
+  } finally {
+    if (id === requestId) setLoading(false);
+  }
 }
 
 document.getElementById("source").addEventListener("click", (event) => {
@@ -799,6 +889,14 @@ document.getElementById("stats").addEventListener("change", (event) => {
   if (lastBody && view === "charts") renderCharts(lastBody);
 });
 
+document.getElementById("refresh").addEventListener("click", () => {
+  load().catch(showError);
+});
+
+document.getElementById("auto-refresh").addEventListener("change", applyAutoRefresh);
+document.getElementById("auto-refresh-seconds").addEventListener("change", applyAutoRefresh);
+applyAutoRefresh();
+
 document.getElementById("view").addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
@@ -809,6 +907,7 @@ document.getElementById("view").addEventListener("click", (event) => {
 
 press("source", "source", source);
 press("view", "view", view);
+selfCheckBreakSeriesGaps();
 
 if (!window.Chart) {
   showError(new Error("Chart library failed to load."));

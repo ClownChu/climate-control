@@ -2,6 +2,7 @@ import sys
 import os
 
 from envfile import load_dotenv
+from src.utils.log import configure_logging
 
 def to_pascal_case(text: str):
     if len(text) == 0:
@@ -27,6 +28,7 @@ if __name__ == '__main__':
     if len(sys.argv) == 2 and sys.argv[1] == '--self-check':
         _self_check()
     else:
+        configure_logging()
         # Imported here so --self-check does not load websockets or api_config.yml.
         from src.routines.keep_temperature_in_range import KeepTemperatureInRangeRoutine
         from src.routines.keep_temperature_in_range_spring import KeepTemperatureInRangeSpringRoutine

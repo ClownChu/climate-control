@@ -8,5 +8,5 @@ max_attempts: 8
 max_backoff_seconds: 60
 port: 8099
 default_interval: 900
-history_dir: data/history
-ambient_dir: data/ambient
+history_dir: data/station
+ambient_dir: data/historical
