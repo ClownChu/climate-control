@@ -1,0 +1,12 @@
+# Non-secret weather settings. API keys stay in .env.
+base_url: https://api.ambientweather.net
+history_limit: 288
+window_hours: 6
+near_minutes: 5
+lookback_days: 2110
+max_attempts: 8
+max_backoff_seconds: 60
+port: 8099
+default_interval: 900
+history_dir: data/history
+ambient_dir: data/ambient

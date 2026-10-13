@@ -29,6 +29,7 @@
         </li>
         <li>
             <code>python3 ./run.py &lt;profile&gt; &lt;device-id&gt; [refresh-token]</code>
+            starts the thermostat, the dashboard at <code>http://127.0.0.1:8099/dashboard</code>, and the repeating Ambient backfill.
         </li>
         <li>
             The refresh token comes from <code>REFRESH_TOKEN</code>. When that is unset, the last argument is used.
@@ -40,16 +41,16 @@
 
 <h2 align="center" id="weather">Weather dashboard</h2>
 <div>
-    <p>Station uploads are stored as UTC 12-hour JSONL buckets under <code>data/history</code>. Ambient history backfill uses <code>data/ambient</code>. The dashboard charts both.</p>
+    <p><code>python3 ./run.py &lt;profile&gt; &lt;device-id&gt; [refresh-token]</code> starts the thermostat, the server at <code>http://127.0.0.1:8099/dashboard</code>, and a repeating Ambient backfill. Station uploads are stored as UTC 12-hour JSONL buckets under <code>data/history</code>. Ambient history uses <code>data/ambient</code>. The dashboard charts both. <code>WEATHER_HISTORY_INTERVAL</code> is the pause between backfill passes, in seconds (900 when unset).</p>
     <ul>
         <li>
-            <code>python3 weather_server.py</code> listens on port 8099. Open <code>http://127.0.0.1:8099/dashboard</code>. Pass a port and a history directory to override the defaults.
+            <code>python3 -m src.weather.server</code> listens on port 8099. Open <code>http://127.0.0.1:8099/dashboard</code>. Pass a port and a history directory to override the defaults.
         </li>
         <li>
-            <code>python3 weather_history.py</code> backfills Ambient history into <code>data/ambient</code>. It loads <code>AMBIENT_API_KEY</code> and <code>AMBIENT_APPLICATION_KEY</code> from <code>.env</code>. <code>AMBIENT_MAC</code> picks one station when the account has several.
+            <code>python3 -m src.weather.history</code> backfills Ambient history into <code>data/ambient</code> until Ctrl-C. It loads <code>AMBIENT_API_KEY</code>, <code>AMBIENT_APPLICATION_KEY</code>, and <code>WEATHER_HISTORY_INTERVAL</code> from <code>.env</code>. <code>AMBIENT_MAC</code> picks one station when the account has several.
         </li>
         <li>
-            <code>python3 weather_server.py --self-check</code> and <code>python3 weather_history.py --self-check</code> exercise the collectors without calling Ambient.
+            <code>python3 -m src.weather.server --self-check</code>, <code>python3 -m src.weather.history --self-check</code>, and <code>python3 run.py --self-check</code> exercise the collectors and the supervisor without calling Ambient.
         </li>
     </ul>
 </div>
