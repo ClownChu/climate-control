@@ -37,27 +37,6 @@ const CHARTS = [
   ]}
 ];
 
-const STRIP = [
-  ["Outdoor", "tempf", "\u00b0F", 1, "ph-thermometer", "text-orange-500"],
-  ["Feels like", "feelsLike", "\u00b0F", 2, "ph-thermometer-hot", "text-rose-500"],
-  ["Dew point", "dewPoint", "\u00b0F", 2, "ph-drop", "text-cyan-600"],
-  ["Indoor", "tempinf", "\u00b0F", 1, "ph-house", "text-blue-500"],
-  ["Indoor feels like", "feelsLikein", "\u00b0F", 1, "ph-thermometer-hot", "text-indigo-500"],
-  ["Indoor dew point", "dewPointin", "\u00b0F", 1, "ph-drop", "text-teal-500"],
-  ["Humidity", "humidity", "%", 0, "ph-drop", "text-teal-600"],
-  ["Wind", "windspeedmph", "mph", 1, "ph-wind", "text-sky-500"],
-  ["Wind direction", "winddir", "", 0, "ph-compass", "text-indigo-500"],
-  ["Max gust", "maxdailygust", "mph", 1, "ph-wind", "text-amber-500"],
-  ["Pressure", "baromrelin", "inHg", 2, "ph-gauge", "text-indigo-700"],
-  ["UV", "uv", "", 1, "ph-sun", "text-rose-500"],
-  ["Daily rain", "dailyrainin", "in", 2, "ph-cloud-rain", "text-indigo-500"],
-  ["Event rain", "eventrainin", "in", 2, "ph-cloud-rain", "text-sky-600"],
-  ["Weekly rain", "weeklyrainin", "in", 2, "ph-calendar", "text-sky-700"],
-  ["Monthly rain", "monthlyrainin", "in", 2, "ph-calendar", "text-violet-600"],
-  ["Total rain", "totalrainin", "in", 2, "ph-stack", "text-teal-700"],
-  ["Last rain", "lastRain", "", null, "ph-clock", "text-slate-500"]
-];
-
 const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
 
 const filterButton = document.getElementById("filter-value");
@@ -91,6 +70,7 @@ let loading = false;
 let refreshTimer = 0;
 let lastBody = null;
 let charts = [];
+let compassBearing = 0;
 let filter = {kind: "last", count: 24, unit: "hours", from: "", to: ""};
 const backStack = [];
 
@@ -132,23 +112,6 @@ function cardinalDetail(degrees) {
   return compassPoint(circle, COMPASS_FINE) + " (" + degreeText(circle) + "\u00b0)";
 }
 
-function startOfWeek(date) {
-  const local = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  local.setDate(local.getDate() - local.getDay());
-  return local;
-}
-
-function dayLabel(date) {
-  const withYear = date.getFullYear() !== new Date().getFullYear();
-  return date.toLocaleDateString(undefined, withYear
-    ? {month: "short", day: "numeric", year: "numeric"}
-    : {month: "short", day: "numeric"});
-}
-
-function monthLabel(date) {
-  return date.toLocaleDateString(undefined, {month: "long", year: "numeric"});
-}
-
 function fallen(records, key) {
   let total = 0;
   let seen = false;
@@ -167,49 +130,22 @@ function fallen(records, key) {
   return seen ? total : null;
 }
 
-function rainInView(records) {
-  const weeks = new Map();
-  const months = new Map();
-  for (const row of records) {
-    const when = new Date(row.dateutc);
-    if (isNaN(when.getTime())) continue;
-    if (isNum(row.weeklyrainin)) weeks.set(startOfWeek(when).getTime(), row.weeklyrainin);
-    if (isNum(row.monthlyrainin)) {
-      months.set(new Date(when.getFullYear(), when.getMonth(), 1).getTime(), row.monthlyrainin);
-    }
-  }
+function rainInView(records, bounds) {
   // totalrainin stopped increasing in 2024, so rain in the view comes from weeklyrainin.
   const total = fallen(records, "weeklyrainin");
-  const seenTotal = total != null;
-  const weekTimes = Array.from(weeks.keys()).sort((a, b) => a - b);
-  const monthTimes = Array.from(months.keys()).sort((a, b) => a - b);
-  let weekly = null;
-  if (weekTimes.length) {
-    weekly = 0;
-    for (const time of weekTimes) weekly += weeks.get(time);
-  }
-  let monthly = null;
-  if (monthTimes.length) {
-    monthly = 0;
-    for (const time of monthTimes) monthly += months.get(time);
-  }
-  let weeklyNote = "";
-  if (weekTimes.length === 1) weeklyNote = "Week of " + dayLabel(new Date(weekTimes[0]));
-  else if (weekTimes.length > 1) {
-    weeklyNote = "Weeks of " + dayLabel(new Date(weekTimes[0])) + " \u2013 " + dayLabel(new Date(weekTimes[weekTimes.length - 1]));
-  }
-  let monthlyNote = "";
-  if (monthTimes.length === 1) monthlyNote = monthLabel(new Date(monthTimes[0]));
-  else if (monthTimes.length > 1) {
-    monthlyNote = monthLabel(new Date(monthTimes[0])) + " \u2013 " + monthLabel(new Date(monthTimes[monthTimes.length - 1]));
-  }
+  const span = bounds || currentBounds();
+  const hours = (new Date(span.to) - new Date(span.from)) / 3600000;
+  const windowDays = hours / 24;
+  const windowWeeks = windowDays / 7;
+  const days = windowDays < 1 ? 1 : windowDays;
+  const weeks = windowDays < 7 ? 1 : windowWeeks;
+  const months = windowWeeks < 4 ? 1 : windowWeeks / 4;
+  if (total == null) return {total: null, daily: null, weekly: null, monthly: null};
   return {
-    weekly: weekly,
-    weeklyNote: weeklyNote,
-    monthly: monthly,
-    monthlyNote: monthlyNote,
-    total: seenTotal ? total : null,
-    totalNote: seenTotal ? "Selected range" : ""
+    total: total,
+    daily: total / days,
+    weekly: total / weeks,
+    monthly: total / months
   };
 }
 
@@ -272,6 +208,13 @@ function stampText(iso) {
   return isNaN(date.getTime()) ? iso : formatTooltipTime(date);
 }
 
+function loadedRangeText(body) {
+  const start = new Date(body.from);
+  const end = new Date(body.to);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return "\u2014";
+  return formatWhen(start, true, true) + " \u2013 " + formatWhen(end, true, true);
+}
+
 function seriesUnit(spec, series) {
   return series.unit || spec.unit || "";
 }
@@ -293,44 +236,118 @@ function rowAt(records, ms) {
   return null;
 }
 
-function readingCard(label, text, unit, icon, iconColor, note, compact) {
-  const card = document.createElement("div");
-  card.className = "bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center";
+function metricBody(label, text, icon, iconColor) {
+  const block = document.createElement("div");
+  block.className = "min-w-0";
   const heading = document.createElement("div");
-  heading.className = "flex items-center gap-2 text-slate-500 mb-1";
+  heading.className = "flex items-center gap-1.5 min-w-0 text-slate-500";
   const iconNode = document.createElement("i");
-  iconNode.className = "ph " + icon + " " + iconColor + " text-lg";
-  const labelNode = document.createElement("span");
-  labelNode.className = "text-xs font-semibold uppercase tracking-wider";
-  labelNode.textContent = label;
-  heading.append(iconNode, labelNode);
-  card.append(heading);
-  const valueRow = document.createElement("div");
-  valueRow.className = "flex items-end";
-  if (text === "\u2014") {
-    valueRow.textContent = text;
-  } else {
-    const amount = document.createElement("span");
-    amount.className = (compact
-      ? "text-sm font-semibold leading-snug"
-      : "text-2xl font-bold") + " tracking-tight text-slate-900";
-    amount.textContent = text;
-    valueRow.append(amount);
-    if (unit) {
-      const unitNode = document.createElement("span");
-      unitNode.className = "text-sm font-medium text-slate-500 ml-1 mb-1";
-      unitNode.textContent = unit;
-      valueRow.append(unitNode);
-    }
-  }
-  card.append(valueRow);
-  if (note) {
-    const noteNode = document.createElement("p");
-    noteNode.className = "text-xs text-slate-500 mt-1";
-    noteNode.textContent = note;
-    card.append(noteNode);
-  }
+  iconNode.className = "ph " + icon + " " + iconColor + " text-base shrink-0";
+  iconNode.setAttribute("aria-hidden", "true");
+  const name = document.createElement("p");
+  name.className = "text-[10px] font-semibold uppercase tracking-wider truncate";
+  name.textContent = label;
+  heading.append(iconNode, name);
+  const value = document.createElement("p");
+  value.className = "text-sm font-semibold tabular-nums text-slate-900 mt-0.5 break-words";
+  value.textContent = text;
+  block.append(heading, value);
+  return block;
+}
+
+function metricBox(label, text, icon, iconColor) {
+  const card = document.createElement("div");
+  card.className = "bg-white px-3 py-2.5 rounded-xl shadow-sm border border-slate-200 min-w-0 flex flex-col justify-center";
+  card.append(metricBody(label, text, icon, iconColor));
   return card;
+}
+
+function compactPair(left, right, wide) {
+  const card = document.createElement("div");
+  card.className = (wide ? "col-span-2 " : "") + "bg-white px-3 py-2 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center gap-1 min-w-0";
+  card.append(left, right);
+  return card;
+}
+
+function metricLine(label, text, icon, iconColor) {
+  const row = document.createElement("div");
+  row.className = "flex items-center gap-1.5 min-w-0";
+  const iconNode = document.createElement("i");
+  iconNode.className = "ph " + icon + " " + iconColor + " text-sm shrink-0";
+  iconNode.setAttribute("aria-hidden", "true");
+  const name = document.createElement("p");
+  name.className = "text-[10px] font-semibold uppercase tracking-wider text-slate-500 shrink-0";
+  name.textContent = label;
+  const value = document.createElement("p");
+  value.className = "text-sm font-semibold tabular-nums text-slate-900 ml-auto shrink-0";
+  value.textContent = text;
+  row.append(iconNode, name, value);
+  return row;
+}
+function measure(row, key, digits, unit) {
+  return withUnit(fixed(row[key], digits), unit);
+}
+
+function inches(value) {
+  return withUnit(fixed(value, 2), "in");
+}
+
+function readingGroup(title, when) {
+  const section = document.createElement("section");
+  section.className = "flex flex-col gap-2 min-w-0";
+  const heading = document.createElement("h3");
+  heading.className = "text-xs font-semibold uppercase tracking-wider text-slate-500 flex flex-wrap items-baseline gap-x-1.5";
+  const name = document.createElement("span");
+  name.textContent = title;
+  const date = document.createElement("span");
+  date.className = "text-[10px] font-normal normal-case tracking-normal text-slate-400";
+  date.textContent = "(" + when + ")";
+  heading.append(name, date);
+  const list = document.createElement("div");
+  list.className = "grid grid-cols-2 gap-2";
+  section.append(heading, list);
+  return {section: section, list: list};
+}
+
+function compassWidget(degrees) {
+  const known = isNum(degrees);
+  const next = known ? ((degrees % 360) + 360) % 360 : compassBearing;
+  const previous = compassBearing;
+  if (known) compassBearing = next;
+  const wrap = document.createElement("div");
+  wrap.className = "flex items-center gap-2 shrink-0";
+  wrap.innerHTML = '<svg viewBox="0 0 64 64" class="h-16 w-16 shrink-0" role="img">'
+    + '<circle cx="32" cy="32" r="30" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"></circle>'
+    + '<text x="32" y="11" text-anchor="middle" font-size="8" font-weight="700" fill="#0f172a">N</text>'
+    + '<text x="56" y="35" text-anchor="middle" font-size="7" fill="#94a3b8">E</text>'
+    + '<text x="32" y="59" text-anchor="middle" font-size="7" fill="#94a3b8">S</text>'
+    + '<text x="8" y="35" text-anchor="middle" font-size="7" fill="#94a3b8">W</text>'
+    + '<g class="compass-needle">'
+    + '<polygon points="32,16 35.2,34 32,31 28.8,34" fill="#e11d48"></polygon>'
+    + '<polygon points="32,48 35.2,34 32,37 28.8,34" fill="#cbd5e1"></polygon>'
+    + '</g>'
+    + '<circle cx="32" cy="32" r="2.4" fill="#0f172a"></circle>'
+    + '</svg>'
+    + '<div class="min-w-0">'
+    + '<p class="text-xs text-slate-500">Wind direction</p>'
+    + '<p class="compass-point text-sm font-semibold text-slate-900"></p>'
+    + '</div>';
+  wrap.querySelector("svg").setAttribute("aria-label", known
+    ? "Wind direction " + cardinal(degrees)
+    : "Wind direction unavailable");
+  wrap.querySelector(".compass-point").textContent = known
+    ? cardinal(degrees) + " (" + degreeText(next) + "\u00b0)"
+    : "\u2014";
+  const needle = wrap.querySelector(".compass-needle");
+  needle.style.transform = "rotate(" + previous + "deg)";
+  if (known && next !== previous) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        needle.style.transform = "rotate(" + next + "deg)";
+      });
+    });
+  }
+  return wrap;
 }
 
 function tempToggle(which) {
@@ -355,26 +372,58 @@ function tempToggle(which) {
 }
 
 function renderLatest(body) {
-  const latest = body.latest || {};
-  const rain = rainInView(body.records || []);
-  const root = document.getElementById("latest");
-  root.replaceChildren();
-  document.getElementById("updated").textContent = "Updated " + stampText(latest.dateutc);
-  const ranged = {
-    weeklyrainin: [rain.weekly, rain.weeklyNote],
-    monthlyrainin: [rain.monthly, rain.monthlyNote],
-    totalrainin: [rain.total, rain.totalNote]
-  };
-
-  for (const [label, key, unit, digits, icon, iconColor] of STRIP) {
-    if (ranged[key]) {
-      const [amount, note] = ranged[key];
-      root.append(readingCard(label, fixed(amount, 2), "in", icon, iconColor, note, false));
-      continue;
-    }
-    const text = key === "winddir" ? cardinal(latest[key]) : (digits == null ? stampText(latest[key]) : fixed(latest[key], digits));
-    root.append(readingCard(label, text, unit, icon, iconColor, "", digits == null));
-  }
+  const records = body.records || [];
+  const latest = records.length ? records[records.length - 1] : {};
+  const rain = rainInView(records);
+  const latestWhen = stampText(latest.dateutc);
+  document.getElementById("updated").textContent = "Updated " + latestWhen;
+  const outdoor = readingGroup("Outdoor", latestWhen);
+  outdoor.list.append(
+    metricBox("Temperature", measure(latest, "tempf", 1, "\u00b0F"), "ph-thermometer", "text-orange-500"),
+    metricBox("Feels like", measure(latest, "feelsLike", 2, "\u00b0F"), "ph-thermometer-hot", "text-rose-500"),
+    metricBox("Dew point", measure(latest, "dewPoint", 2, "\u00b0F"), "ph-drop", "text-cyan-600"),
+    metricBox("Humidity", measure(latest, "humidity", 0, "%"), "ph-waves", "text-teal-600")
+  );
+  const indoor = readingGroup("Indoor", latestWhen);
+  indoor.list.append(
+    metricBox("Temperature", measure(latest, "tempinf", 1, "\u00b0F"), "ph-house", "text-blue-500"),
+    metricBox("Feels like", measure(latest, "feelsLikein", 1, "\u00b0F"), "ph-person", "text-indigo-500"),
+    metricBox("Dew point", measure(latest, "dewPointin", 1, "\u00b0F"), "ph-snowflake", "text-teal-500"),
+    metricBox("Humidity", measure(latest, "humidityin", 0, "%"), "ph-drop-half", "text-violet-500")
+  );
+  const atmosphere = readingGroup("Atmosphere", latestWhen);
+  const wind = document.createElement("div");
+  wind.className = "col-span-2 bg-white px-3 py-2.5 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3 min-w-0";
+  const windStats = document.createElement("div");
+  windStats.className = "flex flex-col gap-1 flex-1 min-w-0";
+  windStats.append(
+    metricLine("Wind speed", measure(latest, "windspeedmph", 1, "mph"), "ph-wind", "text-sky-500"),
+    metricLine("Max gust", measure(latest, "maxdailygust", 1, "mph"), "ph-hurricane", "text-amber-500")
+  );
+  wind.append(compassWidget(latest.winddir), windStats);
+  atmosphere.list.append(
+    wind,
+    metricBox("Pressure", measure(latest, "baromrelin", 2, "inHg"), "ph-gauge", "text-indigo-700"),
+    compactPair(
+      metricLine("Solar", measure(latest, "solarradiation", 1, "W/m\u00b2"), "ph-sun", "text-yellow-500"),
+      metricLine("UV", measure(latest, "uv", 1, ""), "ph-sun-dim", "text-rose-500")
+    )
+  );
+  const rainGroup = readingGroup("Rain", loadedRangeText(body));
+  rainGroup.list.append(
+    compactPair(
+      metricLine("Last event date", stampText(latest.lastRain), "ph-clock", "text-slate-500"),
+      metricLine("Last event total", measure(latest, "eventrainin", 2, "in"), "ph-cloud-rain", "text-sky-600"),
+      true
+    ),
+    metricBox("Total", inches(rain.total), "ph-stack", "text-teal-700"),
+    metricBox("Daily", inches(rain.daily), "ph-calendar-blank", "text-indigo-500"),
+    metricBox("Weekly", inches(rain.weekly), "ph-calendar", "text-sky-700"),
+    metricBox("Monthly", inches(rain.monthly), "ph-calendar-check", "text-violet-600")
+  );
+  document.getElementById("latest-groups").replaceChildren(
+    outdoor.section, indoor.section, atmosphere.section, rainGroup.section
+  );
 }
 
 function clearCharts() {
@@ -646,20 +695,27 @@ function selfCheckRainAndCompass() {
   if (cardinal(256) !== "W" || cardinal(359) !== "N") throw new Error("cardinal wrap");
   if (cardinalDetail(256) !== "WSW (256\u00b0)") throw new Error("fine cardinal");
   if (cardinalDetail(22.5) !== "NNE (22.5\u00b0)") throw new Error("fine degrees");
-  const rain = rainInView([
+  const records = [
     {dateutc: "2026-10-12T12:00:00Z", weeklyrainin: 1, monthlyrainin: 2, totalrainin: 236.22},
     {dateutc: "2026-10-12T18:00:00Z", weeklyrainin: 1.5, monthlyrainin: 2.5, totalrainin: 236.22}
-  ]);
-  if (Math.abs(rain.total - 0.5) > 1e-9) throw new Error("total rain");
-  if (rain.weekly !== 1.5 || rain.monthly !== 2.5) throw new Error("period rain");
-  if (!rain.weeklyNote.startsWith("Week of ")) throw new Error("week label");
-  if (!rain.monthlyNote || rain.totalNote !== "Selected range") throw new Error("period label");
-  const spanned = rainInView([
-    {dateutc: "2026-10-04T12:00:00Z", weeklyrainin: 2, monthlyrainin: 3, totalrainin: 236.22},
-    {dateutc: "2026-10-12T12:00:00Z", weeklyrainin: 1, monthlyrainin: 4, totalrainin: 236.22}
-  ]);
-  if (spanned.weekly !== 3 || spanned.monthly !== 4 || spanned.total !== 1) throw new Error("spanned rain");
-  if (!spanned.weeklyNote.startsWith("Weeks of ")) throw new Error("week span");
+  ];
+  const short = rainInView(records, {from: "2026-10-12T12:00:00Z", to: "2026-10-12T18:00:00Z"});
+  if (Math.abs(short.total - 0.5) > 1e-9) throw new Error("total rain");
+  if (short.daily !== 0.5 || short.weekly !== 0.5 || short.monthly !== 0.5) throw new Error("short window");
+  const twoDays = rainInView(records, {from: "2026-10-10T18:00:00Z", to: "2026-10-12T18:00:00Z"});
+  if (Math.abs(twoDays.daily - 0.25) > 1e-9 || twoDays.weekly !== 0.5 || twoDays.monthly !== 0.5) {
+    throw new Error("two day averages");
+  }
+  const eightWeeks = rainInView(records, {from: "2026-08-17T18:00:00Z", to: "2026-10-12T18:00:00Z"});
+  if (Math.abs(eightWeeks.daily - 0.5 / 56) > 1e-9) throw new Error("daily average");
+  if (Math.abs(eightWeeks.weekly - 0.5 / 8) > 1e-9) throw new Error("weekly average");
+  if (Math.abs(eightWeeks.monthly - 0.25) > 1e-9) throw new Error("monthly average");
+  const reset = rainInView([
+    {dateutc: "2026-10-04T12:00:00Z", weeklyrainin: 2, totalrainin: 236.22},
+    {dateutc: "2026-10-12T12:00:00Z", weeklyrainin: 1, totalrainin: 236.22}
+  ], {from: "2026-10-04T12:00:00Z", to: "2026-10-12T12:00:00Z"});
+  if (reset.total !== 1) throw new Error("reset total");
+  if (Math.abs(reset.weekly - 0.875) > 1e-9 || reset.monthly !== 1) throw new Error("reset averages");
 }
 
 function statSummary(spec, records, flags) {
