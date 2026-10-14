@@ -83,6 +83,7 @@ const UNIT_SINGULAR = {
 const showStats = {average: true, median: false};
 const tempMode = {outdoor: "actual", indoor: "actual"};
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+const COMPASS_FINE = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
 let source = "historical";
 let view = "charts";
 let requestId = 0;
@@ -109,10 +110,26 @@ function isNum(value) {
   return typeof value === "number" && isFinite(value);
 }
 
+function compassPoint(degrees, points) {
+  const circle = ((degrees % 360) + 360) % 360;
+  const step = 360 / points.length;
+  return points[Math.round(circle / step) % points.length];
+}
+
 function cardinal(degrees) {
   if (!isNum(degrees)) return "\u2014";
+  return compassPoint(degrees, COMPASS);
+}
+
+function degreeText(degrees) {
+  const rounded = Math.round(degrees * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function cardinalDetail(degrees) {
+  if (!isNum(degrees)) return "\u2014";
   const circle = ((degrees % 360) + 360) % 360;
-  return COMPASS[Math.round(circle / 45) % 8];
+  return compassPoint(circle, COMPASS_FINE) + " (" + degreeText(circle) + "\u00b0)";
 }
 
 function startOfWeek(date) {
@@ -132,12 +149,27 @@ function monthLabel(date) {
   return date.toLocaleDateString(undefined, {month: "long", year: "numeric"});
 }
 
+function fallen(records, key) {
+  let total = 0;
+  let seen = false;
+  let previous = null;
+  for (const row of records) {
+    const value = row[key];
+    if (!isNum(value)) continue;
+    if (seen) {
+      const delta = value - previous;
+      if (delta >= -0.0001) total += Math.max(0, delta);
+      else total += value;
+    }
+    previous = value;
+    seen = true;
+  }
+  return seen ? total : null;
+}
+
 function rainInView(records) {
   const weeks = new Map();
   const months = new Map();
-  let total = 0;
-  let seenTotal = false;
-  let previous = null;
   for (const row of records) {
     const when = new Date(row.dateutc);
     if (isNaN(when.getTime())) continue;
@@ -145,12 +177,10 @@ function rainInView(records) {
     if (isNum(row.monthlyrainin)) {
       months.set(new Date(when.getFullYear(), when.getMonth(), 1).getTime(), row.monthlyrainin);
     }
-    if (isNum(row.totalrainin)) {
-      if (seenTotal && row.totalrainin > previous) total += row.totalrainin - previous;
-      previous = row.totalrainin;
-      seenTotal = true;
-    }
   }
+  // totalrainin stopped increasing in 2024, so rain in the view comes from weeklyrainin.
+  const total = fallen(records, "weeklyrainin");
+  const seenTotal = total != null;
   const weekTimes = Array.from(weeks.keys()).sort((a, b) => a - b);
   const monthTimes = Array.from(months.keys()).sort((a, b) => a - b);
   let weekly = null;
@@ -614,17 +644,19 @@ function selfCheckBreakSeriesGaps() {
 function selfCheckRainAndCompass() {
   if (cardinal(0) !== "N" || cardinal(360) !== "N" || cardinal(45) !== "NE") throw new Error("cardinal");
   if (cardinal(256) !== "W" || cardinal(359) !== "N") throw new Error("cardinal wrap");
+  if (cardinalDetail(256) !== "WSW (256\u00b0)") throw new Error("fine cardinal");
+  if (cardinalDetail(22.5) !== "NNE (22.5\u00b0)") throw new Error("fine degrees");
   const rain = rainInView([
-    {dateutc: "2026-10-12T12:00:00Z", weeklyrainin: 1, monthlyrainin: 2, totalrainin: 10},
-    {dateutc: "2026-10-12T18:00:00Z", weeklyrainin: 1.5, monthlyrainin: 2.5, totalrainin: 10.25}
+    {dateutc: "2026-10-12T12:00:00Z", weeklyrainin: 1, monthlyrainin: 2, totalrainin: 236.22},
+    {dateutc: "2026-10-12T18:00:00Z", weeklyrainin: 1.5, monthlyrainin: 2.5, totalrainin: 236.22}
   ]);
-  if (Math.abs(rain.total - 0.25) > 1e-9) throw new Error("total rain");
+  if (Math.abs(rain.total - 0.5) > 1e-9) throw new Error("total rain");
   if (rain.weekly !== 1.5 || rain.monthly !== 2.5) throw new Error("period rain");
   if (!rain.weeklyNote.startsWith("Week of ")) throw new Error("week label");
   if (!rain.monthlyNote || rain.totalNote !== "Selected range") throw new Error("period label");
   const spanned = rainInView([
-    {dateutc: "2026-10-04T12:00:00Z", weeklyrainin: 2, monthlyrainin: 3, totalrainin: 10},
-    {dateutc: "2026-10-12T12:00:00Z", weeklyrainin: 1, monthlyrainin: 4, totalrainin: 11}
+    {dateutc: "2026-10-04T12:00:00Z", weeklyrainin: 2, monthlyrainin: 3, totalrainin: 236.22},
+    {dateutc: "2026-10-12T12:00:00Z", weeklyrainin: 1, monthlyrainin: 4, totalrainin: 236.22}
   ]);
   if (spanned.weekly !== 3 || spanned.monthly !== 4 || spanned.total !== 1) throw new Error("spanned rain");
   if (!spanned.weeklyNote.startsWith("Weeks of ")) throw new Error("week span");
@@ -818,7 +850,8 @@ function renderCharts(body) {
                 const row = rowAt(records, ms);
                 for (const series of shown) {
                   const value = row ? row[series.key] : null;
-                  lines.push(series.label + ": " + formatSeriesValue(spec, series, value));
+                  const text = series.cardinal ? cardinalDetail(value) : formatSeriesValue(spec, series, value);
+                  lines.push(series.label + ": " + text);
                 }
                 return lines;
               },
