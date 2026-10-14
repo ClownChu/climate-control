@@ -67,6 +67,11 @@
       opacity: 0.4;
       pointer-events: none;
     }
+    .compass-needle {
+      transform-box: fill-box;
+      transform-origin: center;
+      transition: transform 0.45s ease;
+    }
   </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -162,6 +167,13 @@
               <span class="font-medium text-slate-600">s</span>
             </div>
           </div>
+
+          <div class="flex items-center gap-2 ml-auto">
+            <p id="updated" class="text-[10px] leading-tight text-slate-400"></p>
+            <button type="button" id="refresh" class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors shrink-0" aria-label="Refresh data">
+              <i class="ph ph-arrow-clockwise text-lg" aria-hidden="true"></i>
+            </button>
+          </div>
       </div>
     </section>
 
@@ -170,7 +182,9 @@
       <span id="error-msg"></span>
     </p>
 
-    <section id="latest" aria-label="Current readings" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4"></section>
+    <section id="latest" aria-label="Current readings">
+      <div id="latest-groups" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4"></div>
+    </section>
     <div id="reset-row" class="flex justify-end" hidden>
       <button type="button" id="back" class="px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 flex items-center gap-1.5 transition-colors">
         <i class="ph ph-arrow-counter-clockwise"></i> Reset view
@@ -178,13 +192,7 @@
     </div>
     <div class="flex flex-col gap-2">
     <div class="flex items-center justify-between gap-3">
-      <div class="flex items-center gap-2 min-w-0">
-        <p id="status" class="text-xs text-slate-500 font-medium"></p>
-        <span id="updated" class="text-xs text-slate-400"></span>
-        <button type="button" id="refresh" class="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors shrink-0" aria-label="Refresh data">
-          <i class="ph ph-arrow-clockwise text-lg" aria-hidden="true"></i>
-        </button>
-      </div>
+      <p id="status" class="text-xs text-slate-500 font-medium"></p>
       <div class="flex p-1 bg-slate-100 rounded-lg shadow-inner shrink-0" id="view" role="group" aria-label="View">
         <button type="button" data-view="charts" aria-pressed="true" class="px-3 py-1.5 text-sm rounded-md transition-all duration-200" title="Charts View"><i class="ph ph-chart-line-up text-lg"></i></button>
         <button type="button" data-view="table" aria-pressed="false" class="px-3 py-1.5 text-sm rounded-md transition-all duration-200" title="Table View"><i class="ph ph-table text-lg"></i></button>
@@ -211,6 +219,6 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
-  <script src="/dashboard.js"></script>
+  <script type="module" src="/dashboard.js"></script>
 </body>
 </html>
