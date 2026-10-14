@@ -69,12 +69,6 @@ def _feels_like(temp_f, humidity, wind_mph):
     return temp, False
 
 
-def feels_like(temp_f, humidity, wind_mph=0):
-    """Feels-like °F before display rounding. Missing wind counts as calm."""
-    value, _computed = _feels_like(temp_f, humidity, wind_mph)
-    return value
-
-
 def _put(reading, key, value):
     if value is None:
         reading.pop(key, None)

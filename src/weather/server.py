@@ -31,6 +31,15 @@ DASHBOARD_PAGE = _ROOT / "dashboard.html"
 DASHBOARD_SCRIPT = _ROOT / "dashboard.js"
 SERVICES_PAGE = _ROOT / "services.html"
 SERVICES_SCRIPT = _ROOT / "services.js"
+_STATIC = {
+    "/dashboard": (DASHBOARD_PAGE, "text/html; charset=utf-8"),
+    "/dashboard.js": (DASHBOARD_SCRIPT, "text/javascript; charset=utf-8"),
+    "/dashboard-series.js": (_ROOT / "dashboard-series.js", "text/javascript; charset=utf-8"),
+    "/dashboard-cards.js": (_ROOT / "dashboard-cards.js", "text/javascript; charset=utf-8"),
+    "/dashboard-range.js": (_ROOT / "dashboard-range.js", "text/javascript; charset=utf-8"),
+    "/services": (SERVICES_PAGE, "text/html; charset=utf-8"),
+    "/services.js": (SERVICES_SCRIPT, "text/javascript; charset=utf-8"),
+}
 _CHART_FIELDS = (
     "tempf",
     "feelsLike",
@@ -171,7 +180,6 @@ def dashboard_series(history_dir, query, now=None):
         folder = history_dir
     else:
         return 400, {"ok": False}
-    snapshot = latest_path(folder)
 
     clock = now if now is not None else datetime.now(timezone.utc).replace(tzinfo=None)
     default_to = clock.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -186,14 +194,12 @@ def dashboard_series(history_dir, query, now=None):
     records, _opened = query_history(folder, start, end, _CHART_FIELDS)
     total = len(records)
     records, step = stride_series(records)
-    latest = read_snapshot(snapshot)
     return 200, {
         "source": source,
         "from": start,
         "to": end,
         "step": step,
         "total": total,
-        "latest": project_record(latest, _CHART_FIELDS) if latest else None,
         "records": records,
     }
 
@@ -207,25 +213,10 @@ class WeatherHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         split = urlsplit(self.path)
-        if split.path == "/dashboard":
-            self._reply_bytes(
-                200, "text/html; charset=utf-8", DASHBOARD_PAGE.read_bytes()
-            )
-            return
-        if split.path == "/dashboard.js":
-            self._reply_bytes(
-                200, "text/javascript; charset=utf-8", DASHBOARD_SCRIPT.read_bytes()
-            )
-            return
-        if split.path == "/services":
-            self._reply_bytes(
-                200, "text/html; charset=utf-8", SERVICES_PAGE.read_bytes()
-            )
-            return
-        if split.path == "/services.js":
-            self._reply_bytes(
-                200, "text/javascript; charset=utf-8", SERVICES_SCRIPT.read_bytes()
-            )
+        static = _STATIC.get(split.path)
+        if static is not None:
+            path, content_type = static
+            self._reply_bytes(200, content_type, path.read_bytes())
             return
         if split.path == "/services/logs":
             self._reply(200, service_logs())
@@ -400,14 +391,6 @@ def self_check():
             bucket_path(history, "2026-10-11T15:30:00Z"),
             {"dateutc": "2026-10-11T15:30:00Z", "tempf": 64.0},
         )
-        write_latest(
-            latest_path(historical),
-            {"dateutc": "2026-10-11T15:00:00Z", "tempf": 62.0},
-        )
-        write_latest(
-            latest_path(history),
-            {"dateutc": "2026-10-11T15:40:00Z", "tempf": 65.5},
-        )
         status, payload = dashboard_series(history, "", now)
         assert status == 200
         assert payload["source"] == "historical"
@@ -421,15 +404,13 @@ def self_check():
         ]
         assert [row["tempf"] for row in payload["records"]] == [60.0, 62.0]
         assert all("PASSKEY" not in row for row in payload["records"])
-        assert payload["latest"]["dateutc"] == "2026-10-11T15:00:00Z"
-        assert payload["latest"]["tempf"] == 62.0
+        assert "latest" not in payload
         assert "2026-10-11T14:30:00Z" not in [
             row["dateutc"] for row in payload["records"]
         ]
 
         same, same_body = dashboard_series(history, "source=historical", now)
         assert same == 200 and same_body["records"] == payload["records"]
-        assert same_body["latest"] == payload["latest"]
 
         status, history_body = dashboard_series(history, "source=station", now)
         assert status == 200
@@ -441,8 +422,7 @@ def self_check():
             "2026-10-11T15:30:00Z",
         ]
         assert [row["tempf"] for row in history_body["records"]] == [1.0, 9.0, 64.0]
-        assert history_body["latest"]["dateutc"] == "2026-10-11T15:40:00Z"
-        assert history_body["latest"]["tempf"] == 65.5
+        assert "latest" not in history_body
         assert "2026-10-11T12:00:00Z" not in [
             row["dateutc"] for row in history_body["records"]
         ]
@@ -526,34 +506,20 @@ def self_check():
     handler.end_headers = lambda: None
     handler.do_GET()
     page = handler.wfile.getvalue()
-    assert b'src="/dashboard.js"' in page
+    assert b'type="module" src="/dashboard.js"' in page
     assert b'data-source="historical"' in page
     assert b'data-source="station"' in page
     assert b'href="/services"' in page
-    assert b"xl:grid-cols-6" in page
     handler.wfile = io.BytesIO()
     handler.path = "/dashboard.js"
     handler.do_GET()
     script = handler.wfile.getvalue()
     assert b"/dashboard/series" in script
-    for name in (
-        "feelsLike",
-        "dewPoint",
-        "feelsLikein",
-        "dewPointin",
-        "winddir",
-        "maxdailygust",
-        "eventrainin",
-        "weeklyrainin",
-        "monthlyrainin",
-        "totalrainin",
-        "lastRain",
-    ):
-        assert name in _CHART_FIELDS
-        assert name.encode() in script
-    assert b"spanGaps: false" in script
-    assert b"breakSeriesGaps" in script
-    assert b'source = "historical"' in script
+    for path in ("/dashboard-series.js", "/dashboard-cards.js", "/dashboard-range.js"):
+        handler.wfile = io.BytesIO()
+        handler.path = path
+        handler.do_GET()
+        assert b"export " in handler.wfile.getvalue()
     handler.wfile = io.BytesIO()
     handler.path = "/services"
     handler.do_GET()

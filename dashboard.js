@@ -1,68 +1,33 @@
-const CHARTS = [
-  {title: "Outdoor temperature", icon: "ph-thermometer", unit: "\u00b0F", digits: 1, toggle: "outdoor", series: [
-    {key: "tempf", label: "Outdoor", mode: "actual", color: "#f97316", average: "#aff916", median: "#f916c2"},
-    {key: "feelsLike", label: "Outdoor feels like", mode: "feels", color: "#fb7185", average: "#881337", median: "#fda4af", digits: 2}
-  ]},
-  {title: "Indoor temperature", icon: "ph-house", unit: "\u00b0F", digits: 1, toggle: "indoor", series: [
-    {key: "tempinf", label: "Indoor", mode: "actual", color: "#3b82f6", average: "#9f3bf6", median: "#3bf690"},
-    {key: "feelsLikein", label: "Indoor feels like", mode: "feels", color: "#818cf8", average: "#312e81", median: "#c7d2fe"}
-  ]},
-  {title: "Dew point", icon: "ph-drop", unit: "\u00b0F", digits: 1, series: [
-    {key: "dewPoint", label: "Outdoor", color: "#06b6d4", average: "#155e75", median: "#67e8f9", digits: 2},
-    {key: "dewPointin", label: "Indoor", color: "#2dd4bf", average: "#115e59", median: "#99f6e4"}
-  ]},
-  {title: "Humidity", icon: "ph-drop", unit: "%", digits: 0, series: [
-    {key: "humidity", label: "Outdoor", color: "#14b8a6", average: "#1434b8", median: "#41b814"},
-    {key: "humidityin", label: "Indoor", color: "#8b5cf6", average: "#f65cd4", median: "#5ce1f6"}
-  ]},
-  {title: "Wind", icon: "ph-wind", unit: "mph", digits: 1, series: [
-    {key: "windspeedmph", label: "Speed", color: "#0ea5e9", average: "#400ee9", median: "#0ee92d"},
-    {key: "windgustmph", label: "Gust", color: "#f59e0b", average: "#76f50b", median: "#f50b89"},
-    {key: "maxdailygust", label: "Max gust", color: "#ef4444", average: "#7f1d1d", median: "#fca5a5"}
-  ]},
-  {title: "Wind direction", icon: "ph-compass", unit: "", digits: 0, cardinal: true, series: [
-    {key: "winddir", label: "Direction", color: "#6366f1", average: "#312e81", median: "#a5b4fc", cardinal: true}
-  ]},
-  {title: "Rain", icon: "ph-cloud-rain", unit: "in", digits: 2, series: [
-    {key: "hourlyrainin", label: "Hourly", color: "#2563eb", average: "#9d25eb", median: "#25eb8c"},
-    {key: "dailyrainin", label: "Daily", color: "#4f46e5", average: "#e146e5", median: "#46e5d4"},
-    {key: "eventrainin", label: "Event", color: "#0f766e", average: "#134e4a", median: "#5eead4"}
-  ]},
-  {title: "Pressure", icon: "ph-gauge", unit: "inHg", digits: 2, series: [
-    {key: "baromrelin", label: "Relative", color: "#4338ca", average: "#c938ca", median: "#38cabd"}
-  ]},
-  {title: "Solar / UV", icon: "ph-sun", digits: 1, independent: true, series: [
-    {key: "solarradiation", label: "Solar", color: "#eab308", average: "#52ea08", median: "#ea0865", unit: "W/m\u00b2"},
-    {key: "uv", label: "UV", color: "#e11d48", average: "#e1a61d", median: "#951de1", unit: "index"}
-  ]}
-];
+import {
+  CHARTS,
+  averageOf,
+  breakSeriesGaps,
+  cardinal,
+  cardinalDetail,
+  columnName,
+  fixed,
+  formatSeriesValue,
+  formatTooltipTime,
+  formatWhen,
+  isNum,
+  medianOf,
+  numericValues,
+  rowAt,
+  seriesDigits,
+  seriesUnit,
+  shownSeries,
+  stampText,
+  tempMode,
+  withUnit
+} from "./dashboard-series.js";
+import {renderLatest} from "./dashboard-cards.js";
+import {applyZoom, bindRange, currentBounds, toUtcParam, updateFilterLabel} from "./dashboard-range.js";
 
+const Chart = window.Chart;
 const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
-
-const filterButton = document.getElementById("filter-value");
-const filterLabelNode = document.getElementById("filter-label");
-const filterMenu = document.getElementById("filter-menu");
-const lastCount = document.getElementById("last-count");
-const lastUnit = document.getElementById("last-unit");
-const fromInput = document.getElementById("from");
-const toInput = document.getElementById("to");
-const backButton = document.getElementById("back");
-const resetRow = document.getElementById("reset-row");
 const errorNode = document.getElementById("error");
 const errorMsg = document.getElementById("error-msg");
-const UNITS = ["seconds", "minutes", "hours", "days", "months", "years"];
-const UNIT_SINGULAR = {
-  seconds: "second",
-  minutes: "minute",
-  hours: "hour",
-  days: "day",
-  months: "month",
-  years: "year"
-};
 const showStats = {average: true, median: false};
-const tempMode = {outdoor: "actual", indoor: "actual"};
-const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-const COMPASS_FINE = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
 let source = "historical";
 let view = "charts";
 let requestId = 0;
@@ -70,11 +35,8 @@ let loading = false;
 let refreshTimer = 0;
 let lastBody = null;
 let charts = [];
-let compassBearing = 0;
-let filter = {kind: "last", count: 24, unit: "hours", from: "", to: ""};
-const backStack = [];
 
-if (window.Chart) {
+if (Chart) {
   Chart.defaults.font.family = "'Inter', sans-serif";
   Chart.defaults.color = "#64748b";
   Chart.defaults.scale.grid.color = "#f1f5f9";
@@ -84,270 +46,6 @@ if (window.Chart) {
   Chart.defaults.plugins.tooltip.titleFont = {size: 13, weight: "600"};
   Chart.defaults.plugins.tooltip.bodyFont = {size: 12};
   Chart.defaults.plugins.tooltip.boxPadding = 6;
-}
-
-function isNum(value) {
-  return typeof value === "number" && isFinite(value);
-}
-
-function compassPoint(degrees, points) {
-  const circle = ((degrees % 360) + 360) % 360;
-  const step = 360 / points.length;
-  return points[Math.round(circle / step) % points.length];
-}
-
-function cardinal(degrees) {
-  if (!isNum(degrees)) return "\u2014";
-  return compassPoint(degrees, COMPASS);
-}
-
-function degreeText(degrees) {
-  const rounded = Math.round(degrees * 10) / 10;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
-}
-
-function cardinalDetail(degrees) {
-  if (!isNum(degrees)) return "\u2014";
-  const circle = ((degrees % 360) + 360) % 360;
-  return compassPoint(circle, COMPASS_FINE) + " (" + degreeText(circle) + "\u00b0)";
-}
-
-function fallen(records, key) {
-  let total = 0;
-  let seen = false;
-  let previous = null;
-  for (const row of records) {
-    const value = row[key];
-    if (!isNum(value)) continue;
-    if (seen) {
-      const delta = value - previous;
-      if (delta >= -0.0001) total += Math.max(0, delta);
-      else total += value;
-    }
-    previous = value;
-    seen = true;
-  }
-  return seen ? total : null;
-}
-
-function rainInView(records, bounds) {
-  // totalrainin stopped increasing in 2024, so rain in the view comes from weeklyrainin.
-  const total = fallen(records, "weeklyrainin");
-  const span = bounds || currentBounds();
-  const hours = (new Date(span.to) - new Date(span.from)) / 3600000;
-  const windowDays = hours / 24;
-  const windowWeeks = windowDays / 7;
-  const days = windowDays < 1 ? 1 : windowDays;
-  const weeks = windowDays < 7 ? 1 : windowWeeks;
-  const months = windowWeeks < 4 ? 1 : windowWeeks / 4;
-  if (total == null) return {total: null, daily: null, weekly: null, monthly: null};
-  return {
-    total: total,
-    daily: total / days,
-    weekly: total / weeks,
-    monthly: total / months
-  };
-}
-
-function shownSeries(spec) {
-  if (!spec.toggle) return spec.series;
-  return spec.series.filter((series) => series.mode === tempMode[spec.toggle]);
-}
-
-function formatSeriesValue(spec, series, value) {
-  if (series.cardinal) return cardinal(value);
-  return withUnit(fixed(value, seriesDigits(spec, series)), seriesUnit(spec, series));
-}
-
-function fixed(value, digits) {
-  return isNum(value) ? value.toFixed(digits) : "\u2014";
-}
-
-function withUnit(text, unit) {
-  return text === "\u2014" || !unit ? text : text + " " + unit;
-}
-
-function pad(number) {
-  return String(number).padStart(2, "0");
-}
-
-function toLocalInput(date) {
-  return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate())
-    + "T" + pad(date.getHours()) + ":" + pad(date.getMinutes()) + ":" + pad(date.getSeconds());
-}
-
-function toUtcParam(localValue) {
-  const date = new Date(localValue);
-  if (isNaN(date.getTime())) throw new Error("Enter a valid date range.");
-  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-function formatWhen(date, withTime, crossesYear) {
-  const datePart = date.toLocaleDateString(undefined, crossesYear
-    ? {year: "numeric", month: "short", day: "numeric"}
-    : {month: "short", day: "numeric"});
-  if (!withTime) return datePart;
-  const timePart = date.toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
-  return datePart + " " + timePart;
-}
-
-function formatTooltipTime(date) {
-  return date.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-}
-
-function stampText(iso) {
-  if (!iso) return "\u2014";
-  const date = new Date(iso);
-  return isNaN(date.getTime()) ? iso : formatTooltipTime(date);
-}
-
-function loadedRangeText(body) {
-  const start = new Date(body.from);
-  const end = new Date(body.to);
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) return "\u2014";
-  return formatWhen(start, true, true) + " \u2013 " + formatWhen(end, true, true);
-}
-
-function seriesUnit(spec, series) {
-  return series.unit || spec.unit || "";
-}
-
-function seriesDigits(spec, series) {
-  return series.digits != null ? series.digits : spec.digits;
-}
-
-function columnName(spec, series) {
-  const name = spec.series.length > 1 ? spec.title + " " + series.label : spec.title;
-  const unit = seriesUnit(spec, series);
-  return unit ? name + " (" + unit + ")" : name;
-}
-
-function rowAt(records, ms) {
-  for (const row of records) {
-    if (Date.parse(row.dateutc) === ms) return row;
-  }
-  return null;
-}
-
-function metricBody(label, text, icon, iconColor) {
-  const block = document.createElement("div");
-  block.className = "min-w-0";
-  const heading = document.createElement("div");
-  heading.className = "flex items-center gap-1.5 min-w-0 text-slate-500";
-  const iconNode = document.createElement("i");
-  iconNode.className = "ph " + icon + " " + iconColor + " text-base shrink-0";
-  iconNode.setAttribute("aria-hidden", "true");
-  const name = document.createElement("p");
-  name.className = "text-[10px] font-semibold uppercase tracking-wider truncate";
-  name.textContent = label;
-  heading.append(iconNode, name);
-  const value = document.createElement("p");
-  value.className = "text-sm font-semibold tabular-nums text-slate-900 mt-0.5 break-words";
-  value.textContent = text;
-  block.append(heading, value);
-  return block;
-}
-
-function metricBox(label, text, icon, iconColor) {
-  const card = document.createElement("div");
-  card.className = "bg-white px-3 py-2.5 rounded-xl shadow-sm border border-slate-200 min-w-0 flex flex-col justify-center";
-  card.append(metricBody(label, text, icon, iconColor));
-  return card;
-}
-
-function compactPair(left, right, wide) {
-  const card = document.createElement("div");
-  card.className = (wide ? "col-span-2 " : "") + "bg-white px-3 py-2 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center gap-1 min-w-0";
-  card.append(left, right);
-  return card;
-}
-
-function metricLine(label, text, icon, iconColor) {
-  const row = document.createElement("div");
-  row.className = "flex items-center gap-1.5 min-w-0";
-  const iconNode = document.createElement("i");
-  iconNode.className = "ph " + icon + " " + iconColor + " text-sm shrink-0";
-  iconNode.setAttribute("aria-hidden", "true");
-  const name = document.createElement("p");
-  name.className = "text-[10px] font-semibold uppercase tracking-wider text-slate-500 shrink-0";
-  name.textContent = label;
-  const value = document.createElement("p");
-  value.className = "text-sm font-semibold tabular-nums text-slate-900 ml-auto shrink-0";
-  value.textContent = text;
-  row.append(iconNode, name, value);
-  return row;
-}
-function measure(row, key, digits, unit) {
-  return withUnit(fixed(row[key], digits), unit);
-}
-
-function inches(value) {
-  return withUnit(fixed(value, 2), "in");
-}
-
-function readingGroup(title, when) {
-  const section = document.createElement("section");
-  section.className = "flex flex-col gap-2 min-w-0";
-  const heading = document.createElement("h3");
-  heading.className = "text-xs font-semibold uppercase tracking-wider text-slate-500 flex flex-wrap items-baseline gap-x-1.5";
-  const name = document.createElement("span");
-  name.textContent = title;
-  const date = document.createElement("span");
-  date.className = "text-[10px] font-normal normal-case tracking-normal text-slate-400";
-  date.textContent = "(" + when + ")";
-  heading.append(name, date);
-  const list = document.createElement("div");
-  list.className = "grid grid-cols-2 gap-2";
-  section.append(heading, list);
-  return {section: section, list: list};
-}
-
-function compassWidget(degrees) {
-  const known = isNum(degrees);
-  const next = known ? ((degrees % 360) + 360) % 360 : compassBearing;
-  const previous = compassBearing;
-  if (known) compassBearing = next;
-  const wrap = document.createElement("div");
-  wrap.className = "flex items-center gap-2 shrink-0";
-  wrap.innerHTML = '<svg viewBox="0 0 64 64" class="h-16 w-16 shrink-0" role="img">'
-    + '<circle cx="32" cy="32" r="30" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"></circle>'
-    + '<text x="32" y="11" text-anchor="middle" font-size="8" font-weight="700" fill="#0f172a">N</text>'
-    + '<text x="56" y="35" text-anchor="middle" font-size="7" fill="#94a3b8">E</text>'
-    + '<text x="32" y="59" text-anchor="middle" font-size="7" fill="#94a3b8">S</text>'
-    + '<text x="8" y="35" text-anchor="middle" font-size="7" fill="#94a3b8">W</text>'
-    + '<g class="compass-needle">'
-    + '<polygon points="32,16 35.2,34 32,31 28.8,34" fill="#e11d48"></polygon>'
-    + '<polygon points="32,48 35.2,34 32,37 28.8,34" fill="#cbd5e1"></polygon>'
-    + '</g>'
-    + '<circle cx="32" cy="32" r="2.4" fill="#0f172a"></circle>'
-    + '</svg>'
-    + '<div class="min-w-0">'
-    + '<p class="text-xs text-slate-500">Wind direction</p>'
-    + '<p class="compass-point text-sm font-semibold text-slate-900"></p>'
-    + '</div>';
-  wrap.querySelector("svg").setAttribute("aria-label", known
-    ? "Wind direction " + cardinal(degrees)
-    : "Wind direction unavailable");
-  wrap.querySelector(".compass-point").textContent = known
-    ? cardinal(degrees) + " (" + degreeText(next) + "\u00b0)"
-    : "\u2014";
-  const needle = wrap.querySelector(".compass-needle");
-  needle.style.transform = "rotate(" + previous + "deg)";
-  if (known && next !== previous) {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        needle.style.transform = "rotate(" + next + "deg)";
-      });
-    });
-  }
-  return wrap;
 }
 
 function tempToggle(which) {
@@ -371,61 +69,6 @@ function tempToggle(which) {
   return group;
 }
 
-function renderLatest(body) {
-  const records = body.records || [];
-  const latest = records.length ? records[records.length - 1] : {};
-  const rain = rainInView(records);
-  const latestWhen = stampText(latest.dateutc);
-  document.getElementById("updated").textContent = "Updated " + latestWhen;
-  const outdoor = readingGroup("Outdoor", latestWhen);
-  outdoor.list.append(
-    metricBox("Temperature", measure(latest, "tempf", 1, "\u00b0F"), "ph-thermometer", "text-orange-500"),
-    metricBox("Feels like", measure(latest, "feelsLike", 2, "\u00b0F"), "ph-thermometer-hot", "text-rose-500"),
-    metricBox("Dew point", measure(latest, "dewPoint", 2, "\u00b0F"), "ph-drop", "text-cyan-600"),
-    metricBox("Humidity", measure(latest, "humidity", 0, "%"), "ph-waves", "text-teal-600")
-  );
-  const indoor = readingGroup("Indoor", latestWhen);
-  indoor.list.append(
-    metricBox("Temperature", measure(latest, "tempinf", 1, "\u00b0F"), "ph-house", "text-blue-500"),
-    metricBox("Feels like", measure(latest, "feelsLikein", 1, "\u00b0F"), "ph-person", "text-indigo-500"),
-    metricBox("Dew point", measure(latest, "dewPointin", 1, "\u00b0F"), "ph-snowflake", "text-teal-500"),
-    metricBox("Humidity", measure(latest, "humidityin", 0, "%"), "ph-drop-half", "text-violet-500")
-  );
-  const atmosphere = readingGroup("Atmosphere", latestWhen);
-  const wind = document.createElement("div");
-  wind.className = "col-span-2 bg-white px-3 py-2.5 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3 min-w-0";
-  const windStats = document.createElement("div");
-  windStats.className = "flex flex-col gap-1 flex-1 min-w-0";
-  windStats.append(
-    metricLine("Wind speed", measure(latest, "windspeedmph", 1, "mph"), "ph-wind", "text-sky-500"),
-    metricLine("Max gust", measure(latest, "maxdailygust", 1, "mph"), "ph-hurricane", "text-amber-500")
-  );
-  wind.append(compassWidget(latest.winddir), windStats);
-  atmosphere.list.append(
-    wind,
-    metricBox("Pressure", measure(latest, "baromrelin", 2, "inHg"), "ph-gauge", "text-indigo-700"),
-    compactPair(
-      metricLine("Solar", measure(latest, "solarradiation", 1, "W/m\u00b2"), "ph-sun", "text-yellow-500"),
-      metricLine("UV", measure(latest, "uv", 1, ""), "ph-sun-dim", "text-rose-500")
-    )
-  );
-  const rainGroup = readingGroup("Rain", loadedRangeText(body));
-  rainGroup.list.append(
-    compactPair(
-      metricLine("Last event date", stampText(latest.lastRain), "ph-clock", "text-slate-500"),
-      metricLine("Last event total", measure(latest, "eventrainin", 2, "in"), "ph-cloud-rain", "text-sky-600"),
-      true
-    ),
-    metricBox("Total", inches(rain.total), "ph-stack", "text-teal-700"),
-    metricBox("Daily", inches(rain.daily), "ph-calendar-blank", "text-indigo-500"),
-    metricBox("Weekly", inches(rain.weekly), "ph-calendar", "text-sky-700"),
-    metricBox("Monthly", inches(rain.monthly), "ph-calendar-check", "text-violet-600")
-  );
-  document.getElementById("latest-groups").replaceChildren(
-    outdoor.section, indoor.section, atmosphere.section, rainGroup.section
-  );
-}
-
 function clearCharts() {
   for (const chart of charts) chart.destroy();
   charts = [];
@@ -442,280 +85,6 @@ function yScale(unit, position) {
     scale.grid = {drawOnChartArea: false};
   }
   return scale;
-}
-
-function unitWord(count, unit) {
-  return count === 1 ? (UNIT_SINGULAR[unit] || unit) : unit;
-}
-
-function filterText(value) {
-  if (value.kind === "last") return "Last " + value.count + " " + unitWord(value.count, value.unit);
-  const start = new Date(value.from);
-  const end = new Date(value.to);
-  const crossesYear = start.getFullYear() !== end.getFullYear();
-  return formatWhen(start, true, crossesYear) + " \u2013 " + formatWhen(end, true, crossesYear);
-}
-
-function updateFilterLabel() {
-  filterLabelNode.textContent = filterText(filter);
-  const index = UNITS.indexOf(filter.unit);
-  document.querySelector('[data-step="unit-down"]').disabled = filter.kind === "last" && index <= 0;
-  document.querySelector('[data-step="unit-up"]').disabled = filter.kind === "last" && index >= UNITS.length - 1;
-  document.querySelector('[data-step="amount-down"]').disabled = filter.kind === "last" && filter.count <= 1;
-  document.querySelector('[data-step="amount-up"]').disabled = false;
-}
-
-function shiftLocal(value, days, months) {
-  const date = new Date(value);
-  if (days) date.setDate(date.getDate() + days);
-  if (months) date.setMonth(date.getMonth() + months);
-  return toLocalInput(date);
-}
-
-function stepFilter(which) {
-  const next = copyFilter(filter);
-  if (next.kind === "last") {
-    const index = UNITS.indexOf(next.unit);
-    if (which === "amount-down") next.count -= 1;
-    else if (which === "amount-up") next.count += 1;
-    else if (which === "unit-down") next.unit = UNITS[index - 1];
-    else if (which === "unit-up") next.unit = UNITS[index + 1];
-    if (!next.unit || next.count < 1) return;
-  } else if (which === "amount-down") {
-    next.from = shiftLocal(next.from, -1, 0);
-  } else if (which === "amount-up") {
-    next.to = shiftLocal(next.to, 1, 0);
-  } else if (which === "unit-down") {
-    next.from = shiftLocal(next.from, 0, -1);
-    next.to = shiftLocal(next.to, 0, -1);
-  } else if (which === "unit-up") {
-    next.from = shiftLocal(next.from, 0, 1);
-    next.to = shiftLocal(next.to, 0, 1);
-  }
-  if (next.kind === "range" && new Date(next.from) > new Date(next.to)) return;
-  filter = next;
-  updateFilterLabel();
-  closeMenu();
-  load().catch(showError);
-}
-
-function subtractUnit(date, count, unit) {
-  const next = new Date(date.getTime());
-  if (unit === "seconds") next.setSeconds(next.getSeconds() - count);
-  else if (unit === "minutes") next.setMinutes(next.getMinutes() - count);
-  else if (unit === "hours") next.setHours(next.getHours() - count);
-  else if (unit === "days") next.setDate(next.getDate() - count);
-  else if (unit === "months") next.setMonth(next.getMonth() - count);
-  else if (unit === "years") next.setFullYear(next.getFullYear() - count);
-  return next;
-}
-
-function currentBounds() {
-  if (filter.kind === "range") return {from: filter.from, to: filter.to};
-  const end = new Date();
-  const start = subtractUnit(end, filter.count, filter.unit);
-  return {from: toLocalInput(start), to: toLocalInput(end)};
-}
-
-function copyFilter(value) {
-  return {kind: value.kind, count: value.count, unit: value.unit, from: value.from, to: value.to};
-}
-
-function modeKind() {
-  const selected = filterMenu.querySelector('input[name="filter-mode"]:checked');
-  return selected ? selected.value : "last";
-}
-
-function showMode(kind) {
-  const mode = kind === "range" ? "range" : "last";
-  for (const input of filterMenu.querySelectorAll('input[name="filter-mode"]')) {
-    input.checked = input.value === mode;
-  }
-}
-
-function syncMenu() {
-  lastCount.value = String(filter.count || 24);
-  lastUnit.value = filter.unit || "hours";
-  if (filter.kind === "range") {
-    fromInput.value = filter.from;
-    toInput.value = filter.to;
-  } else if (lastBody && lastBody.from && lastBody.to) {
-    fromInput.value = toLocalInput(new Date(lastBody.from));
-    toInput.value = toLocalInput(new Date(lastBody.to));
-  }
-  showMode(filter.kind);
-}
-
-function placeMenu() {
-  filterMenu.style.right = "0px";
-  filterMenu.style.left = "auto";
-  const margin = 8;
-  let rect = filterMenu.getBoundingClientRect();
-  if (rect.left < margin) filterMenu.style.right = (rect.left - margin) + "px";
-  rect = filterMenu.getBoundingClientRect();
-  if (rect.right > window.innerWidth - margin) {
-    const current = parseFloat(filterMenu.style.right) || 0;
-    filterMenu.style.right = (current + rect.right - (window.innerWidth - margin)) + "px";
-  }
-}
-
-function openMenu() {
-  syncMenu();
-  filterMenu.hidden = false;
-  filterButton.setAttribute("aria-expanded", "true");
-  placeMenu();
-}
-
-function closeMenu() {
-  filterMenu.hidden = true;
-  filterButton.setAttribute("aria-expanded", "false");
-}
-
-function onZoomComplete({chart}) {
-  const min = chart.scales.x.min;
-  const max = chart.scales.x.max;
-  const domain = chart.$domain || {min: min, max: max};
-  if (!(max > min)) {
-    chart.resetZoom();
-    return;
-  }
-  if (Math.abs(min - domain.min) < 1000 && Math.abs(max - domain.max) < 1000) {
-    chart.resetZoom();
-    return;
-  }
-  const nextFrom = toLocalInput(new Date(min));
-  const nextTo = toLocalInput(new Date(max));
-  const loadedFrom = lastBody ? toLocalInput(new Date(lastBody.from)) : "";
-  const loadedTo = lastBody ? toLocalInput(new Date(lastBody.to)) : "";
-  if (nextFrom === loadedFrom && nextTo === loadedTo) {
-    chart.resetZoom();
-    return;
-  }
-  backStack.push(copyFilter(filter));
-  resetRow.hidden = false;
-  filter = {kind: "range", count: filter.count, unit: filter.unit, from: nextFrom, to: nextTo};
-  updateFilterLabel();
-  closeMenu();
-  load().catch(showError);
-}
-
-function numericValues(records, key) {
-  const values = [];
-  for (const row of records) {
-    if (isNum(row[key])) values.push(row[key]);
-  }
-  return values;
-}
-
-function averageOf(values) {
-  let sum = 0;
-  for (const value of values) sum += value;
-  return sum / values.length;
-}
-
-function medianOf(values) {
-  const sorted = values.slice().sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  if (sorted.length % 2) return sorted[mid];
-  return (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
-function isoAt(ms) {
-  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-function breakSeriesGaps(points) {
-  if (points.length < 3) return points;
-  const times = points.map((point) => Date.parse(point.x));
-  const gaps = [];
-  for (let i = 1; i < times.length; i++) {
-    const gap = times[i] - times[i - 1];
-    if (gap > 0) gaps.push(gap);
-  }
-  if (!gaps.length) return points;
-  const limit = medianOf(gaps) * 2;
-  const broken = [points[0]];
-  for (let i = 1; i < points.length; i++) {
-    const gap = times[i] - times[i - 1];
-    if (gap > limit) broken.push({x: isoAt(times[i - 1] + gap / 2), y: null});
-    broken.push(points[i]);
-  }
-  return broken;
-}
-
-function selfCheckBreakSeriesGaps() {
-  const start = Date.parse("2026-01-01T00:00:00Z");
-  const points = [];
-  for (let i = 0; i < 6; i++) points.push({x: isoAt(start + i * 300000), y: i});
-  points.push({x: isoAt(start + 5 * 300000 + 7200000), y: 99});
-  const broken = breakSeriesGaps(points);
-  if (broken.length !== points.length + 1) throw new Error("expected one gap break");
-  if (broken[broken.length - 2].y !== null) throw new Error("null belongs in the hole");
-  if (breakSeriesGaps(points.slice(0, 6)).length !== 6) throw new Error("even spacing stays intact");
-  if (breakSeriesGaps(points.slice(0, 2)).length !== 2) throw new Error("short series");
-}
-
-function isoStamp(ms) {
-  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-function breakSeriesGaps(points) {
-  if (points.length < 3) return points;
-  const times = points.map((point) => Date.parse(point.x));
-  const gaps = [];
-  for (let i = 1; i < times.length; i++) {
-    const gap = times[i] - times[i - 1];
-    if (gap > 0) gaps.push(gap);
-  }
-  if (!gaps.length) return points;
-  const limit = medianOf(gaps) * 2;
-  const broken = [points[0]];
-  for (let i = 1; i < points.length; i++) {
-    const gap = times[i] - times[i - 1];
-    if (gap > limit) broken.push({x: isoStamp(times[i - 1] + gap / 2), y: null});
-    broken.push(points[i]);
-  }
-  return broken;
-}
-
-function selfCheckBreakSeriesGaps() {
-  const start = Date.parse("2026-01-01T00:00:00Z");
-  const points = [];
-  for (let i = 0; i < 6; i++) points.push({x: isoStamp(start + i * 300000), y: i});
-  points.push({x: isoStamp(start + 5 * 300000 + 7200000), y: 99});
-  const broken = breakSeriesGaps(points);
-  if (broken.length !== points.length + 1) throw new Error("expected one gap break");
-  if (broken[broken.length - 2].y !== null) throw new Error("null belongs in the hole");
-  if (breakSeriesGaps(points.slice(0, 6)).length !== 6) throw new Error("even spacing stays intact");
-  if (breakSeriesGaps(points.slice(0, 2)).length !== 2) throw new Error("short series");
-}
-
-function selfCheckRainAndCompass() {
-  if (cardinal(0) !== "N" || cardinal(360) !== "N" || cardinal(45) !== "NE") throw new Error("cardinal");
-  if (cardinal(256) !== "W" || cardinal(359) !== "N") throw new Error("cardinal wrap");
-  if (cardinalDetail(256) !== "WSW (256\u00b0)") throw new Error("fine cardinal");
-  if (cardinalDetail(22.5) !== "NNE (22.5\u00b0)") throw new Error("fine degrees");
-  const records = [
-    {dateutc: "2026-10-12T12:00:00Z", weeklyrainin: 1, monthlyrainin: 2, totalrainin: 236.22},
-    {dateutc: "2026-10-12T18:00:00Z", weeklyrainin: 1.5, monthlyrainin: 2.5, totalrainin: 236.22}
-  ];
-  const short = rainInView(records, {from: "2026-10-12T12:00:00Z", to: "2026-10-12T18:00:00Z"});
-  if (Math.abs(short.total - 0.5) > 1e-9) throw new Error("total rain");
-  if (short.daily !== 0.5 || short.weekly !== 0.5 || short.monthly !== 0.5) throw new Error("short window");
-  const twoDays = rainInView(records, {from: "2026-10-10T18:00:00Z", to: "2026-10-12T18:00:00Z"});
-  if (Math.abs(twoDays.daily - 0.25) > 1e-9 || twoDays.weekly !== 0.5 || twoDays.monthly !== 0.5) {
-    throw new Error("two day averages");
-  }
-  const eightWeeks = rainInView(records, {from: "2026-08-17T18:00:00Z", to: "2026-10-12T18:00:00Z"});
-  if (Math.abs(eightWeeks.daily - 0.5 / 56) > 1e-9) throw new Error("daily average");
-  if (Math.abs(eightWeeks.weekly - 0.5 / 8) > 1e-9) throw new Error("weekly average");
-  if (Math.abs(eightWeeks.monthly - 0.25) > 1e-9) throw new Error("monthly average");
-  const reset = rainInView([
-    {dateutc: "2026-10-04T12:00:00Z", weeklyrainin: 2, totalrainin: 236.22},
-    {dateutc: "2026-10-12T12:00:00Z", weeklyrainin: 1, totalrainin: 236.22}
-  ], {from: "2026-10-04T12:00:00Z", to: "2026-10-12T12:00:00Z"});
-  if (reset.total !== 1) throw new Error("reset total");
-  if (Math.abs(reset.weekly - 0.875) > 1e-9 || reset.monthly !== 1) throw new Error("reset averages");
 }
 
 function statSummary(spec, records, flags) {
@@ -926,7 +295,9 @@ function renderCharts(body) {
                 borderWidth: 1
               },
               mode: "x",
-              onZoomComplete: onZoomComplete
+              onZoomComplete: ({chart: zoomed}) => {
+                if (applyZoom(zoomed, lastBody)) load().catch(showError);
+              }
             }
           }
         },
@@ -1042,19 +413,6 @@ function press(group, attr, value) {
   }
 }
 
-function readMenuFilter() {
-  if (modeKind() === "range") {
-    if (!fromInput.value || !toInput.value) throw new Error("Enter a start and an end.");
-    if (new Date(fromInput.value) > new Date(toInput.value)) throw new Error("Start must be before the end.");
-    return {kind: "range", count: filter.count, unit: filter.unit, from: fromInput.value, to: toInput.value};
-  }
-  const count = Number(lastCount.value);
-  if (!Number.isInteger(count) || count < 1) throw new Error("Enter a whole number of 1 or more.");
-  const unit = lastUnit.value;
-  if (!UNIT_SINGULAR[unit]) throw new Error("Choose a unit.");
-  return {kind: "last", count: count, unit: unit, from: "", to: ""};
-}
-
 function setLoading(on) {
   loading = on;
   const graphics = document.getElementById("graphics");
@@ -1105,63 +463,13 @@ document.getElementById("source").addEventListener("click", (event) => {
   load().catch(showError);
 });
 
-filterButton.addEventListener("click", () => {
-  if (filterMenu.hidden) openMenu();
-  else closeMenu();
-});
-
-filterMenu.addEventListener("submit", (event) => {
-  event.preventDefault();
-  try {
-    filter = readMenuFilter();
-  } catch (error) {
+bindRange(() => lastBody, (error) => {
+  if (error) {
     showError(error);
     return;
   }
   errorNode.hidden = true;
-  closeMenu();
-  updateFilterLabel();
   load().catch(showError);
-});
-
-filterMenu.addEventListener("click", (event) => {
-  const row = event.target.closest(".mode");
-  if (!row) return;
-  const radio = row.querySelector('input[name="filter-mode"]');
-  if (!radio) return;
-  radio.checked = true;
-  showMode(radio.value);
-});
-
-lastCount.addEventListener("input", () => showMode("last"));
-lastUnit.addEventListener("change", () => showMode("last"));
-fromInput.addEventListener("input", () => showMode("range"));
-toInput.addEventListener("input", () => showMode("range"));
-
-document.addEventListener("click", (event) => {
-  if (filterMenu.hidden || event.target.closest("#filter")) return;
-  closeMenu();
-});
-
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeMenu();
-});
-
-backButton.addEventListener("click", () => {
-  const original = backStack[0];
-  backStack.length = 0;
-  resetRow.hidden = true;
-  if (!original) return;
-  filter = original;
-  updateFilterLabel();
-  closeMenu();
-  load().catch(showError);
-});
-
-document.querySelector(".stepper").addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-step]");
-  if (!button || button.disabled) return;
-  stepFilter(button.dataset.step);
 });
 
 document.getElementById("stats").addEventListener("change", (event) => {
@@ -1196,10 +504,8 @@ document.getElementById("view").addEventListener("click", (event) => {
 
 press("source", "source", source);
 press("view", "view", view);
-selfCheckBreakSeriesGaps();
-selfCheckRainAndCompass();
 
-if (!window.Chart) {
+if (!Chart) {
   showError(new Error("Chart library failed to load."));
 } else {
   load().catch(showError);
