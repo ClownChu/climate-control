@@ -48,9 +48,11 @@
         </h1>
         <nav class="flex items-center gap-1 text-sm font-medium" aria-label="Sections">
           <a href="/dashboard" class="px-3 py-1 rounded-md text-slate-600 hover:bg-slate-100">Weather</a>
-          <a href="/routines" class="px-3 py-1 rounded-md text-slate-600 hover:bg-slate-100">Routines</a>
           <a href="/services" class="px-3 py-1 rounded-md bg-slate-900 text-white" aria-current="page">Services</a>
         </nav>
+        <button type="button" id="settings-open" class="ml-auto p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg" aria-label="Settings" aria-haspopup="dialog" aria-controls="settings-dialog">
+          <i class="ph ph-gear text-xl" aria-hidden="true"></i>
+        </button>
       </div>
     </div>
   </header>
@@ -63,6 +65,7 @@
 
   <main id="panels" class="flex-1 max-w-[1600px] mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 xl:grid-cols-2 gap-4" aria-label="Service logs"></main>
 
+  <script src="/settings.js"></script>
   <script src="/services.js"></script>
 </body>
 </html>

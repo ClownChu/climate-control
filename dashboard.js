@@ -505,60 +505,6 @@ document.getElementById("view").addEventListener("click", (event) => {
 press("source", "source", source);
 press("view", "view", view);
 
-const intervalDialog = document.getElementById("interval-dialog");
-const intervalForm = document.getElementById("interval-form");
-const intervalSeconds = document.getElementById("interval-seconds");
-const intervalError = document.getElementById("interval-error");
-
-function showIntervalError(message) {
-  intervalError.hidden = false;
-  intervalError.textContent = message;
-}
-
-document.getElementById("interval-open").addEventListener("click", async () => {
-  intervalError.hidden = true;
-  intervalDialog.showModal();
-  try {
-    const response = await fetch("/config/history-interval", {headers: {Accept: "application/json"}});
-    if (!response.ok) throw new Error("Could not load the interval (" + response.status + ")");
-    const body = await response.json();
-    if (!Number.isInteger(body.weather_history_interval) || body.weather_history_interval < 0) {
-      throw new Error("Interval response was not a whole number of seconds.");
-    }
-    intervalSeconds.value = String(body.weather_history_interval);
-    intervalSeconds.focus();
-  } catch (error) {
-    showIntervalError(error.message || "Could not load the interval.");
-  }
-});
-
-document.getElementById("interval-cancel").addEventListener("click", () => {
-  intervalDialog.close();
-});
-
-intervalForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  intervalError.hidden = true;
-  const value = Number(intervalSeconds.value);
-  if (!Number.isInteger(value) || value < 0) {
-    showIntervalError("Enter a whole number of seconds, 0 or greater.");
-    return;
-  }
-  try {
-    const response = await fetch("/config/history-interval", {
-      method: "POST",
-      headers: {"Content-Type": "application/json", Accept: "application/json"},
-      body: JSON.stringify({weather_history_interval: value})
-    });
-    if (!response.ok) throw new Error("Save failed (" + response.status + ").");
-    const body = await response.json();
-    if (body.weather_history_interval !== value) throw new Error("Save did not keep that interval.");
-    intervalDialog.close();
-  } catch (error) {
-    showIntervalError(error.message || "Save failed.");
-  }
-});
-
 if (!Chart) {
   showError(new Error("Chart library failed to load."));
 } else {

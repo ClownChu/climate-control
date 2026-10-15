@@ -67,13 +67,6 @@
       opacity: 0.4;
       pointer-events: none;
     }
-    #interval-dialog {
-      border: 0;
-      padding: 0;
-    }
-    #interval-dialog::backdrop {
-      background: rgb(15 23 42 / 0.45);
-    }
     .compass-needle {
       transform-box: fill-box;
       transform-origin: center;
@@ -92,12 +85,10 @@
         </h1>
         <nav class="flex items-center gap-1 text-sm font-medium" aria-label="Sections">
           <a href="/dashboard" class="px-3 py-1 rounded-md bg-slate-900 text-white" aria-current="page">Weather</a>
-          <a href="/routines" class="px-3 py-1 rounded-md text-slate-600 hover:bg-slate-100">Routines</a>
           <a href="/services" class="px-3 py-1 rounded-md text-slate-600 hover:bg-slate-100">Services</a>
         </nav>
-        <button type="button" id="interval-open" class="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50" aria-haspopup="dialog" aria-controls="interval-dialog">
-          <i class="ph ph-clock" aria-hidden="true"></i>
-          History interval
+        <button type="button" id="settings-open" class="ml-auto p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg" aria-label="Settings" aria-haspopup="dialog" aria-controls="settings-dialog">
+          <i class="ph ph-gear text-xl" aria-hidden="true"></i>
         </button>
       </div>
     </div>
@@ -228,22 +219,7 @@
     </div>
   </main>
 
-  <dialog id="interval-dialog" class="rounded-2xl shadow-xl border border-slate-200 w-[min(24rem,calc(100vw-2rem))]" aria-labelledby="interval-title">
-    <form id="interval-form" class="p-5 flex flex-col gap-4">
-      <h2 id="interval-title" class="text-lg font-semibold text-slate-900">History interval</h2>
-      <p class="text-sm text-slate-500">Seconds between Ambient history passes. Use a whole number, 0 or greater. The collector reads it on the next pass.</p>
-      <label class="flex flex-col gap-1 text-sm font-medium text-slate-700" for="interval-seconds">
-        Seconds
-        <input id="interval-seconds" type="number" min="0" step="1" inputmode="numeric" required class="px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
-      </label>
-      <p id="interval-error" class="text-sm font-medium text-red-700" hidden></p>
-      <div class="flex justify-end gap-2">
-        <button type="button" id="interval-cancel" class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-        <button type="submit" class="px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800">Save</button>
-      </div>
-    </form>
-  </dialog>
-
+  <script src="/settings.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>

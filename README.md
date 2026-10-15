@@ -48,8 +48,9 @@ python3 ./run.py
 ```
 
 - Weather: `http://<host>:8099/dashboard`
-- Routines: `http://<host>:8099/routines`
 - Service logs: `http://<host>:8099/services`
+
+The cog in the header opens settings. **General** edits `weather_history_interval`. **Routines** edits the device id, the active routine, and each profile's bands.
 
 The weather server listens on every interface, port `8099` (`src/config/app_config.json`).
 
@@ -78,7 +79,7 @@ journalctl -u climate-control.service -f
 
 ## Profiles
 
-The active profile is `routine` in `src/config/app_config.json`. `control.py` loads `src/config/<routine>_config.yml` and the matching routine class. Bands are Fahrenheit, keyed by hour. `/routines` can switch the active routine, edit the device id, and save bands.
+The active profile is `routine` in `src/config/app_config.json`. `control.py` loads `src/config/<routine>_config.yml` and the matching routine class. Bands are Fahrenheit, keyed by hour. The settings cog can switch the active routine, edit the device id, and save bands.
 
 | Profile | What it does |
 |---|---|
@@ -92,11 +93,11 @@ The active profile is `routine` in `src/config/app_config.json`. `control.py` lo
 
 ## Dashboard and logs
 
-`/dashboard` charts station weather. **Historical** reads `data/historical` (Ambient API backfill). **Station** reads `data/station` (live uploads). The default window is the last 24 hours. The page can show charts or a table, average and median lines, and it refreshes on a timer (60 seconds until changed). A window longer than 1500 points is drawn with an even stride; a shorter window returns every stored reading. **History interval** in the header edits `weather_history_interval` (seconds, whole number, 0 or greater). The history process uses the saved value on its next pass.
+`/dashboard` charts station weather. **Historical** reads `data/historical` (Ambient API backfill). **Station** reads `data/station` (live uploads). The default window is the last 24 hours. The page can show charts or a table, average and median lines, and it refreshes on a timer (60 seconds until changed). A window longer than 1500 points is drawn with an even stride; a shorter window returns every stored reading.
 
-`/routines` lists each profile, its YAML path, and its bands. Saving bands writes that routine's YAML only. Activating a routine, or saving the device id, writes `src/config/app_config.json`. The supervisor restarts control when the device id or routine changes.
+The header cog opens one settings dialog. **General** sets `weather_history_interval` (seconds, whole number, 0 or greater). The history process uses the saved value on its next pass. **Routines** lists each profile, its YAML path, and its bands. Saving bands writes that routine's YAML only. Activating a routine, or saving the device id, writes `src/config/app_config.json`. The supervisor restarts control when the device id or routine changes.
 
-`/services` shows the tail of each logger under `data/logs`, 200 lines, polled every 2 seconds. When stderr is a terminal, the bracketed logger name is colored. Log files are plain text, one file per logger, trimmed to 256 KiB. Weather, Routines, and Services share the header nav.
+`/services` shows the tail of each logger under `data/logs`, 200 lines, polled every 2 seconds. When stderr is a terminal, the bracketed logger name is colored. Log files are plain text, one file per logger, trimmed to 256 KiB. Weather and Services share the header, including the settings cog.
 
 Either child can run on its own:
 
@@ -125,7 +126,7 @@ The backfill writes the same bucket layout under `data/historical`, plus a `chec
 | `GET /services/logs` | `{ "loggers": [{ "name", "lines" }] }` |
 | `GET /config/history-interval` | `{ "weather_history_interval": 900 }` |
 | `POST /config/history-interval` | Same shape. Anything other than a non-negative integer is `400` |
-| `GET /routines` | Catalog plus parsed YAML. A browser `Accept: text/html` request returns the page |
+| `GET /routines` | Catalog plus parsed YAML, used by the Routines tab |
 | `POST /routines/active` | `{ "routine": "<name>" }` writes the active routine |
 | `POST /routines/device` | `{ "device_id": "<id>" }` writes the device id |
 | `PUT /routines/<name>` | Replaces that routine's hour bands and fan fields |

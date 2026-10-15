@@ -50,8 +50,7 @@ DASHBOARD_PAGE = _ROOT / "dashboard.html"
 DASHBOARD_SCRIPT = _ROOT / "dashboard.js"
 SERVICES_PAGE = _ROOT / "services.html"
 SERVICES_SCRIPT = _ROOT / "services.js"
-ROUTINES_PAGE = _ROOT / "routines.html"
-ROUTINES_SCRIPT = _ROOT / "routines.js"
+SETTINGS_SCRIPT = _ROOT / "settings.js"
 _MAX_BODY = 65536
 _STATIC = {
     "/dashboard": (DASHBOARD_PAGE, "text/html; charset=utf-8"),
@@ -61,7 +60,7 @@ _STATIC = {
     "/dashboard-range.js": (_ROOT / "dashboard-range.js", "text/javascript; charset=utf-8"),
     "/services": (SERVICES_PAGE, "text/html; charset=utf-8"),
     "/services.js": (SERVICES_SCRIPT, "text/javascript; charset=utf-8"),
-    "/routines.js": (ROUTINES_SCRIPT, "text/javascript; charset=utf-8"),
+    "/settings.js": (SETTINGS_SCRIPT, "text/javascript; charset=utf-8"),
 }
 _CHART_FIELDS = (
     "tempf",
@@ -231,14 +230,6 @@ def redact_passkey(text):
     return _PASSKEY_LOG.sub(r"\1REDACTED", text)
 
 
-def wants_html(handler):
-    headers = getattr(handler, "headers", None)
-    if headers is None:
-        return False
-    accept = headers.get("Accept", "")
-    return isinstance(accept, str) and "text/html" in accept
-
-
 def json_dict(raw):
     if not isinstance(raw, (bytes, bytearray)):
         return None
@@ -328,9 +319,6 @@ class WeatherHandler(BaseHTTPRequestHandler):
             self._reply(200, service_logs())
             return
         if split.path == "/routines":
-            if wants_html(self):
-                self._reply_bytes(200, "text/html; charset=utf-8", ROUTINES_PAGE.read_bytes())
-                return
             status, payload = routines_get()
             self._reply(status, payload)
             return
@@ -428,8 +416,7 @@ def self_check():
     assert DASHBOARD_SCRIPT == _ROOT / "dashboard.js"
     assert SERVICES_PAGE == _ROOT / "services.html"
     assert SERVICES_SCRIPT == _ROOT / "services.js"
-    assert ROUTINES_PAGE == _ROOT / "routines.html"
-    assert ROUTINES_SCRIPT == _ROOT / "routines.js"
+    assert SETTINGS_SCRIPT == _ROOT / "settings.js"
     assert DEFAULT_HISTORY == _ROOT / "data" / "station"
     assert DEFAULT_PORT == 8099
 
@@ -664,15 +651,14 @@ def self_check():
     assert b'data-source="historical"' in page
     assert b'data-source="station"' in page
     assert b'href="/services"' in page
-    assert b'href="/routines"' in page
-    assert b'id="interval-dialog"' in page
-    assert b'id="interval-open"' in page
+    assert b'id="settings-open"' in page
+    assert b'src="/settings.js"' in page
+    assert b'href="/routines"' not in page
     handler.wfile = io.BytesIO()
     handler.path = "/dashboard.js"
     handler.do_GET()
     script = handler.wfile.getvalue()
     assert b"/dashboard/series" in script
-    assert b"/config/history-interval" in script
     for path in ("/dashboard-series.js", "/dashboard-cards.js", "/dashboard-range.js"):
         handler.wfile = io.BytesIO()
         handler.path = path
@@ -683,18 +669,22 @@ def self_check():
     handler.do_GET()
     services_page = handler.wfile.getvalue()
     assert b'src="/services.js"' in services_page
-    assert b'href="/routines"' in services_page
+    assert b'id="settings-open"' in services_page
+    assert b'src="/settings.js"' in services_page
     handler.wfile = io.BytesIO()
     handler.path = "/services.js"
     handler.do_GET()
     assert b"/services/logs" in handler.wfile.getvalue()
     handler.wfile = io.BytesIO()
-    handler.path = "/routines.js"
+    handler.path = "/settings.js"
     handler.do_GET()
-    routines_script = handler.wfile.getvalue()
-    assert b"/routines/active" in routines_script
-    assert b"/routines/device" in routines_script
-    assert b"PUT" in routines_script
+    settings_script = handler.wfile.getvalue()
+    assert b"General" in settings_script
+    assert b"Routines" in settings_script
+    assert b"/config/history-interval" in settings_script
+    assert b"/routines/active" in settings_script
+    assert b"/routines/device" in settings_script
+    assert b"PUT" in settings_script
     handler.wfile = io.BytesIO()
     handler.path = "/services/logs"
     handler.do_GET()
@@ -818,8 +808,6 @@ def self_check():
             assert "min: 61" in stored and "max: 68" in stored
 
             code, body = dispatch("/routines", accept="text/html")
-            assert code == 200 and b'src="/routines.js"' in body and b'href="/dashboard"' in body
-            code, body = dispatch("/routines")
             catalog = json.loads(body)
             assert code == 200 and catalog["device_id"] == "dev-new"
             assert b"<html" not in body
