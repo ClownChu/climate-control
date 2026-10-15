@@ -4,16 +4,35 @@ import io
 import json
 import logging
 import re
+import shutil
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
+import yaml
+
+from src.routines import catalog as routine_catalog
+from src.routines.catalog import (
+    ROUTINE_NAMES,
+    describe_routines,
+    routine_path,
+    write_routine,
+)
+from src.utils import weather_config
 from src.utils.log import LOG_NAMES, configure_logging, service_logs
 from src.utils.weather_calc import apply_derived
-from src.utils.weather_config import DEFAULT_HISTORY, DEFAULT_PORT
+from src.utils.weather_config import (
+    DEFAULT_HISTORY,
+    DEFAULT_PORT,
+    control_identity,
+    set_device_id,
+    set_routine,
+    set_weather_history_interval,
+    weather_history_interval,
+)
 from src.utils.weather_store import (
     append_record,
     bucket_path,
@@ -31,6 +50,9 @@ DASHBOARD_PAGE = _ROOT / "dashboard.html"
 DASHBOARD_SCRIPT = _ROOT / "dashboard.js"
 SERVICES_PAGE = _ROOT / "services.html"
 SERVICES_SCRIPT = _ROOT / "services.js"
+ROUTINES_PAGE = _ROOT / "routines.html"
+ROUTINES_SCRIPT = _ROOT / "routines.js"
+_MAX_BODY = 65536
 _STATIC = {
     "/dashboard": (DASHBOARD_PAGE, "text/html; charset=utf-8"),
     "/dashboard.js": (DASHBOARD_SCRIPT, "text/javascript; charset=utf-8"),
@@ -39,6 +61,7 @@ _STATIC = {
     "/dashboard-range.js": (_ROOT / "dashboard-range.js", "text/javascript; charset=utf-8"),
     "/services": (SERVICES_PAGE, "text/html; charset=utf-8"),
     "/services.js": (SERVICES_SCRIPT, "text/javascript; charset=utf-8"),
+    "/routines.js": (ROUTINES_SCRIPT, "text/javascript; charset=utf-8"),
 }
 _CHART_FIELDS = (
     "tempf",
@@ -208,6 +231,89 @@ def redact_passkey(text):
     return _PASSKEY_LOG.sub(r"\1REDACTED", text)
 
 
+def wants_html(handler):
+    headers = getattr(handler, "headers", None)
+    if headers is None:
+        return False
+    accept = headers.get("Accept", "")
+    return isinstance(accept, str) and "text/html" in accept
+
+
+def json_dict(raw):
+    if not isinstance(raw, (bytes, bytearray)):
+        return None
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def history_interval_get():
+    try:
+        return 200, {"weather_history_interval": weather_history_interval()}
+    except (OSError, ValueError, KeyError, TypeError):
+        return 500, {"ok": False}
+
+
+def history_interval_post(data):
+    if not isinstance(data, dict) or "weather_history_interval" not in data:
+        return 400, {"ok": False}
+    try:
+        value = set_weather_history_interval(data["weather_history_interval"])
+    except ValueError:
+        return 400, {"ok": False}
+    return 200, {"weather_history_interval": value}
+
+
+def routines_get():
+    try:
+        device_id, routine = control_identity()
+        routines = describe_routines(routine)
+    except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError):
+        return 500, {"ok": False}
+    return 200, {"device_id": device_id, "routine": routine, "routines": routines}
+
+
+def routines_active_post(data):
+    if not isinstance(data, dict):
+        return 400, {"ok": False}
+    try:
+        name = set_routine(data.get("routine"))
+    except ValueError:
+        return 400, {"ok": False}
+    return 200, {"routine": name}
+
+
+def routines_device_post(data):
+    if not isinstance(data, dict):
+        return 400, {"ok": False}
+    try:
+        device_id = set_device_id(data.get("device_id"))
+    except ValueError:
+        return 400, {"ok": False}
+    return 200, {"device_id": device_id}
+
+
+def routines_put(name, data):
+    try:
+        saved = write_routine(name, data)
+    except KeyError:
+        return 404, {"ok": False}
+    except (OSError, ValueError, yaml.YAMLError):
+        return 500, {"ok": False}
+    if saved is None:
+        return 400, {"ok": False}
+    try:
+        _device, active = control_identity()
+    except (OSError, ValueError, KeyError, TypeError):
+        active = None
+    saved["active"] = saved["name"] == active
+    return 200, saved
+
+
 class WeatherHandler(BaseHTTPRequestHandler):
     history_dir = DEFAULT_HISTORY
 
@@ -221,6 +327,17 @@ class WeatherHandler(BaseHTTPRequestHandler):
         if split.path == "/services/logs":
             self._reply(200, service_logs())
             return
+        if split.path == "/routines":
+            if wants_html(self):
+                self._reply_bytes(200, "text/html; charset=utf-8", ROUTINES_PAGE.read_bytes())
+                return
+            status, payload = routines_get()
+            self._reply(status, payload)
+            return
+        if split.path == "/config/history-interval":
+            status, payload = history_interval_get()
+            self._reply(status, payload)
+            return
         if split.path in ("/data/report", "/data/report/"):
             status, payload = ingest_reading(self.history_dir, split.query)
         elif split.path == "/weather/latest":
@@ -233,14 +350,49 @@ class WeatherHandler(BaseHTTPRequestHandler):
             status, payload = 404, {"ok": False}
         self._reply(status, payload)
 
+    def _read_body(self):
+        headers = getattr(self, "headers", None) or {}
+        try:
+            length = int(headers.get("Content-Length", "0") or 0)
+        except (TypeError, ValueError):
+            return None
+        if length < 0 or length > _MAX_BODY:
+            return None
+        reader = getattr(self, "rfile", None)
+        if reader is None:
+            return b""
+        return reader.read(length)
+
     def do_POST(self):
+        split = urlsplit(self.path)
+        data = json_dict(self._read_body())
+        if split.path == "/config/history-interval":
+            status, payload = history_interval_post(data)
+        elif split.path == "/routines/active":
+            status, payload = routines_active_post(data)
+        elif split.path == "/routines/device":
+            status, payload = routines_device_post(data)
+        else:
+            status, payload = 404, {"ok": False}
+        self._reply(status, payload)
+
+    def do_PUT(self):
+        split = urlsplit(self.path)
+        prefix = "/routines/"
+        if not split.path.startswith(prefix) or "/" in split.path[len(prefix):]:
+            self._reply(404, {"ok": False})
+            return
+        name = unquote(split.path[len(prefix):])
+        status, payload = routines_put(name, json_dict(self._read_body()))
+        self._reply(status, payload)
+
+    def _reject(self):
         self._reply(404, {"ok": False})
 
-    do_PUT = do_POST
-    do_DELETE = do_POST
-    do_HEAD = do_POST
-    do_PATCH = do_POST
-    do_OPTIONS = do_POST
+    do_DELETE = _reject
+    do_HEAD = _reject
+    do_PATCH = _reject
+    do_OPTIONS = _reject
 
     def log_message(self, fmt, *args):
         LOG.info("%s", redact_passkey(fmt % args))
@@ -276,6 +428,8 @@ def self_check():
     assert DASHBOARD_SCRIPT == _ROOT / "dashboard.js"
     assert SERVICES_PAGE == _ROOT / "services.html"
     assert SERVICES_SCRIPT == _ROOT / "services.js"
+    assert ROUTINES_PAGE == _ROOT / "routines.html"
+    assert ROUTINES_SCRIPT == _ROOT / "routines.js"
     assert DEFAULT_HISTORY == _ROOT / "data" / "station"
     assert DEFAULT_PORT == 8099
 
@@ -510,11 +664,15 @@ def self_check():
     assert b'data-source="historical"' in page
     assert b'data-source="station"' in page
     assert b'href="/services"' in page
+    assert b'href="/routines"' in page
+    assert b'id="interval-dialog"' in page
+    assert b'id="interval-open"' in page
     handler.wfile = io.BytesIO()
     handler.path = "/dashboard.js"
     handler.do_GET()
     script = handler.wfile.getvalue()
     assert b"/dashboard/series" in script
+    assert b"/config/history-interval" in script
     for path in ("/dashboard-series.js", "/dashboard-cards.js", "/dashboard-range.js"):
         handler.wfile = io.BytesIO()
         handler.path = path
@@ -523,17 +681,160 @@ def self_check():
     handler.wfile = io.BytesIO()
     handler.path = "/services"
     handler.do_GET()
-    assert b'src="/services.js"' in handler.wfile.getvalue()
+    services_page = handler.wfile.getvalue()
+    assert b'src="/services.js"' in services_page
+    assert b'href="/routines"' in services_page
     handler.wfile = io.BytesIO()
     handler.path = "/services.js"
     handler.do_GET()
     assert b"/services/logs" in handler.wfile.getvalue()
+    handler.wfile = io.BytesIO()
+    handler.path = "/routines.js"
+    handler.do_GET()
+    routines_script = handler.wfile.getvalue()
+    assert b"/routines/active" in routines_script
+    assert b"/routines/device" in routines_script
+    assert b"PUT" in routines_script
     handler.wfile = io.BytesIO()
     handler.path = "/services/logs"
     handler.do_GET()
     logs = json.loads(handler.wfile.getvalue())
     assert [item["name"] for item in logs["loggers"]] == list(LOG_NAMES)
     assert all(isinstance(item["lines"], list) for item in logs["loggers"])
+
+    real_app = weather_config.APP_CONFIG
+    real_root = routine_catalog.ROOT
+    real_text = real_app.read_text(encoding="utf-8")
+
+    def dispatch(path, method="GET", body=b"", accept=""):
+        probe = WeatherHandler.__new__(WeatherHandler)
+        probe.path = path
+        probe.headers = {"Content-Length": str(len(body)), "Accept": accept}
+        probe.rfile = io.BytesIO(body)
+        probe.wfile = io.BytesIO()
+        codes = []
+        probe.send_response = lambda code, message=None: codes.append(code)
+        probe.send_header = lambda key, value: None
+        probe.end_headers = lambda: None
+        getattr(probe, "do_" + method)()
+        return codes[0], probe.wfile.getvalue()
+
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            config_path = temp / "app_config.json"
+            config_path.write_text(real_text, encoding="utf-8")
+            for name in ROUTINE_NAMES:
+                source = routine_path(name)
+                dest = temp / source.relative_to(real_root)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(source, dest)
+            weather_config.APP_CONFIG = config_path
+            routine_catalog.ROOT = temp
+
+            status, payload = history_interval_get()
+            assert status == 200 and payload == {"weather_history_interval": 900}
+            rejected = (
+                None,
+                {},
+                {"weather_history_interval": -1},
+                {"weather_history_interval": 1.5},
+                {"weather_history_interval": "900"},
+                {"weather_history_interval": True},
+            )
+            for raw in rejected:
+                assert history_interval_post(raw)[0] == 400
+            status, payload = history_interval_post({"weather_history_interval": 30})
+            assert status == 200 and payload == {"weather_history_interval": 30}
+            assert history_interval_get() == (200, {"weather_history_interval": 30})
+
+            code, body = dispatch("/config/history-interval")
+            assert code == 200 and json.loads(body)["weather_history_interval"] == 30
+            code, body = dispatch(
+                "/config/history-interval",
+                "POST",
+                b'{"weather_history_interval": 0}',
+            )
+            assert code == 200 and json.loads(body)["weather_history_interval"] == 0
+            code, _body = dispatch("/nope", "POST", b"{}")
+            assert code == 404
+            code, _body = dispatch("/config/history-interval", "POST", b"")
+            assert code == 400
+            huge = WeatherHandler.__new__(WeatherHandler)
+            huge.path = "/config/history-interval"
+            huge.headers = {"Content-Length": "999999"}
+            huge.rfile = io.BytesIO(b"{}")
+            huge.wfile = io.BytesIO()
+            codes = []
+            huge.send_response = lambda status_code, message=None: codes.append(status_code)
+            huge.send_header = lambda key, value: None
+            huge.end_headers = lambda: None
+            huge.do_POST()
+            assert codes == [400]
+
+            status, payload = routines_get()
+            assert status == 200
+            assert payload["device_id"] == "36-6f-92-ff-fe-0d-6c-d1"
+            assert payload["routine"] == "keep_temperature_in_range"
+            assert [item["name"] for item in payload["routines"]] == list(ROUTINE_NAMES)
+            active = [item for item in payload["routines"] if item["active"]]
+            assert len(active) == 1 and active[0]["name"] == "keep_temperature_in_range"
+            assert active[0]["path"].endswith("keep_temperature_in_range_config.yml")
+            assert active[0]["temps"]["5"] == {"min": 66, "max": 68}
+            assert "use_fan" in active[0]
+            away = [item for item in payload["routines"] if item["name"] == "out_and_warm"][0]
+            assert away["path"] == "src/config/out_and_warm_config.yml"
+            assert away["active"] is False
+
+            assert routines_active_post({"routine": "nope"})[0] == 400
+            assert routines_active_post({})[0] == 400
+            status, payload = routines_active_post({"routine": "always_heated"})
+            assert status == 200 and payload == {"routine": "always_heated"}
+            assert routines_get()[1]["routine"] == "always_heated"
+            assert routines_device_post({"device_id": "  "})[0] == 400
+            assert routines_device_post({"device_id": 12})[0] == 400
+            status, payload = routines_device_post({"device_id": " dev-new "})
+            assert status == 200 and payload == {"device_id": "dev-new"}
+            assert control_identity() == ("dev-new", "always_heated")
+
+            band = {
+                "temps": {"5": {"min": 70, "max": 66}, "8": {"min": 60, "max": 63}},
+                "use_fan": False,
+                "min_temp_gain": 2,
+                "max_temp_loss": 2,
+                "end_fan_after": 120,
+                "cycle_end_max_temp_loss": 1,
+            }
+            assert routines_put("keep_temperature_in_range", band)[0] == 400
+            band["temps"] = {"24": {"min": 60, "max": 63}, "5": {"min": 66, "max": 68}}
+            assert routines_put("keep_temperature_in_range", band)[0] == 400
+            band["temps"] = {"5": {"min": 61, "max": 68}}
+            status, payload = routines_put("keep_temperature_in_range", band)
+            assert status == 200
+            assert payload["temps"] == {"5": {"min": 61, "max": 68}}
+            assert payload["active"] is False
+            assert routines_put("not_a_routine", band) == (404, {"ok": False})
+            stored = routine_path("keep_temperature_in_range").read_text(encoding="utf-8")
+            assert "min: 61" in stored and "max: 68" in stored
+
+            code, body = dispatch("/routines", accept="text/html")
+            assert code == 200 and b'src="/routines.js"' in body and b'href="/dashboard"' in body
+            code, body = dispatch("/routines")
+            catalog = json.loads(body)
+            assert code == 200 and catalog["device_id"] == "dev-new"
+            assert b"<html" not in body
+            code, body = dispatch(
+                "/routines/always_heated",
+                "PUT",
+                json.dumps(band).encode("utf-8"),
+            )
+            assert code == 200 and json.loads(body)["name"] == "always_heated"
+            code, _body = dispatch("/routines/nope/extra", "PUT", b"{}")
+            assert code == 404
+    finally:
+        weather_config.APP_CONFIG = real_app
+        routine_catalog.ROOT = real_root
+    assert real_app.read_text(encoding="utf-8") == real_text
 
     print("self-check ok")
 
