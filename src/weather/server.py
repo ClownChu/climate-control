@@ -712,6 +712,8 @@ def self_check():
     assert b"/routines/active" in settings_script
     assert b"/routines/device" in settings_script
     assert b"PUT" in settings_script
+    assert b"Saved." in settings_script
+    assert b"Activated." in settings_script
     handler.wfile = io.BytesIO()
     handler.path = "/services/logs"
     handler.do_GET()

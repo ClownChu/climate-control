@@ -14,6 +14,10 @@ let deviceInput;
 let cards;
 let intervalSeconds;
 let intervalError;
+let intervalStatus;
+let fleetStatus;
+let deviceStatus;
+let savedNotice;
 let generalPanel;
 let routinesPanel;
 let generalTab;
@@ -22,6 +26,8 @@ let routinesTab;
 function showError(message) {
   errorNode.hidden = false;
   errorMsg.textContent = message;
+  hideStatus(deviceStatus);
+  savedNotice = null;
 }
 
 function clearError() {
@@ -32,6 +38,26 @@ function clearError() {
 function showIntervalError(message) {
   intervalError.hidden = false;
   intervalError.textContent = message;
+  hideStatus(intervalStatus);
+}
+
+function statusLine() {
+  const node = document.createElement("p");
+  node.className = "text-sm font-medium text-emerald-700";
+  node.setAttribute("role", "status");
+  node.hidden = true;
+  return node;
+}
+
+function showStatus(node, message) {
+  node.hidden = false;
+  node.textContent = message;
+}
+
+function hideStatus(node) {
+  if (!node) return;
+  node.hidden = true;
+  node.textContent = "";
 }
 
 async function readJson(response) {
@@ -207,13 +233,15 @@ function renderCard(routine) {
   cardError.dataset.error = "true";
   cardError.className = "text-sm font-medium text-red-700";
   cardError.hidden = true;
+  const cardStatus = statusLine();
+  if (savedNotice && savedNotice.name === routine.name) showStatus(cardStatus, savedNotice.message);
 
   const save = document.createElement("button");
   save.type = "submit";
   save.className = "self-end px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800";
   save.textContent = "Save bands";
 
-  form.append(header, bands, add, fan, cardError, save);
+  form.append(header, bands, add, fan, cardError, cardStatus, save);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     saveBands(form, routine.name, cardError);
@@ -243,7 +271,9 @@ async function activateRoutine(name) {
       headers: jsonHeaders,
       body: JSON.stringify({routine: name})
     }));
+    savedNotice = {name: name, message: "Activated."};
     await loadRoutines();
+    savedNotice = null;
   } catch (error) {
     showError(error.message || "Could not activate that routine.");
   }
@@ -251,6 +281,7 @@ async function activateRoutine(name) {
 
 async function saveBands(form, name, cardError) {
   cardError.hidden = true;
+  hideStatus(form.querySelector("[role=status]"));
   const bands = collectBands(form);
   if (bands.error) {
     cardError.hidden = false;
@@ -277,7 +308,9 @@ async function saveBands(form, name, cardError) {
       headers: jsonHeaders,
       body: JSON.stringify(payload)
     }));
+    savedNotice = {name: name, message: "Saved."};
     await loadRoutines();
+    savedNotice = null;
   } catch (error) {
     cardError.hidden = false;
     cardError.textContent = error.message || "Could not save bands.";
@@ -417,13 +450,14 @@ function buildDialog() {
   intervalError.id = "interval-error";
   intervalError.className = "text-sm font-medium text-red-700";
   intervalError.hidden = true;
+  intervalStatus = statusLine();
   const saveRow = document.createElement("div");
   const saveInterval = document.createElement("button");
   saveInterval.type = "submit";
   saveInterval.className = "px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800";
   saveInterval.textContent = "Save";
   saveRow.append(saveInterval);
-  form.append(hint, label, intervalError, saveRow);
+  form.append(hint, label, intervalError, intervalStatus, saveRow);
   const fleet = document.createElement("form");
   fleet.id = "fleet-form";
   fleet.noValidate = true;
@@ -453,6 +487,7 @@ function buildDialog() {
   fleetError.id = "fleet-error";
   fleetError.className = "text-sm font-medium text-red-700";
   fleetError.hidden = true;
+  fleetStatus = statusLine();
   const fleetSave = document.createElement("button");
   fleetSave.type = "submit";
   fleetSave.className = "self-start px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800";
@@ -464,11 +499,13 @@ function buildDialog() {
     labeled("WebSocket URL", wsUrl),
     labeled("Client id", clientId),
     fleetError,
+    fleetStatus,
     fleetSave
   );
   fleet.addEventListener("submit", async (event) => {
     event.preventDefault();
     fleetError.hidden = true;
+    hideStatus(fleetStatus);
     const payload = {
       oauth_url: oauthUrl.value.trim(),
       ws_url: wsUrl.value.trim(),
@@ -477,6 +514,7 @@ function buildDialog() {
     if (!payload.oauth_url || !payload.ws_url || !payload.client_id) {
       fleetError.hidden = false;
       fleetError.textContent = "OAuth URL, WebSocket URL, and client id are required.";
+      hideStatus(fleetStatus);
       return;
     }
     try {
@@ -490,6 +528,7 @@ function buildDialog() {
       if (body.oauth_url !== payload.oauth_url || body.ws_url !== payload.ws_url || body.client_id !== payload.client_id) {
         throw new Error("Save did not keep those connection settings.");
       }
+      showStatus(fleetStatus, "Saved.");
     } catch (error) {
       fleetError.hidden = false;
       fleetError.textContent = error.message || "Save failed.";
@@ -498,6 +537,7 @@ function buildDialog() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     intervalError.hidden = true;
+    hideStatus(intervalStatus);
     const value = Number(intervalSeconds.value);
     if (!Number.isInteger(value) || value < 0) {
       showIntervalError("Enter a whole number of seconds, 0 or greater.");
@@ -512,6 +552,7 @@ function buildDialog() {
       if (!response.ok) throw new Error("Save failed (" + response.status + ").");
       const body = await response.json();
       if (body.weather_history_interval !== value) throw new Error("Save did not keep that interval.");
+      showStatus(intervalStatus, "Saved.");
     } catch (error) {
       showIntervalError(error.message || "Save failed.");
     }
@@ -555,9 +596,11 @@ function buildDialog() {
   deviceSave.type = "submit";
   deviceSave.className = "px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800";
   deviceSave.textContent = "Save device";
-  deviceForm.append(deviceLabel, deviceSave);
+  deviceStatus = statusLine();
+  deviceForm.append(deviceLabel, deviceSave, deviceStatus);
   deviceForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    hideStatus(deviceStatus);
     const deviceId = deviceInput.value.trim();
     if (!deviceId) {
       showError("Device id is required.");
@@ -571,6 +614,7 @@ function buildDialog() {
         body: JSON.stringify({device_id: deviceId})
       }));
       await loadRoutines();
+      showStatus(deviceStatus, "Saved.");
     } catch (error) {
       showError(error.message || "Could not save the device id.");
     }
@@ -599,6 +643,9 @@ if (settingsOpen) {
   settingsOpen.addEventListener("click", () => {
     selectTab("general");
     dialog.showModal();
+    hideStatus(intervalStatus);
+    hideStatus(fleetStatus);
+    hideStatus(deviceStatus);
     loadInterval().catch((error) => showIntervalError(error.message || "Could not load the interval."));
     loadFleet().catch((error) => {
       fleetError.hidden = false;
