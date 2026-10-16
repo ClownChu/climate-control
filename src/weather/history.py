@@ -16,14 +16,15 @@ from src.ambient.api import (
     select_mac,
     self_check as check_ambient,
 )
+from src.utils import weather_config
 from src.utils.log import configure_logging
 from src.utils.weather_config import (
     DEFAULT_AMBIENT,
-    DEFAULT_INTERVAL,
     DOTENV,
     LOOKBACK,
     NEAR,
     WINDOW,
+    weather_history_interval,
 )
 from src.utils.weather_store import (
     append_record,
@@ -226,20 +227,6 @@ def collect(history_dir, client, mac, now, sleep):
             final = True
 
 
-def history_interval(raw):
-    text = "" if raw is None else str(raw).strip()
-    if not text:
-        return DEFAULT_INTERVAL
-    try:
-        seconds = int(text)
-    except ValueError:
-        seconds = -1
-    if seconds < 0:
-        LOG.error("WEATHER_HISTORY_INTERVAL must be a non-negative integer")
-        raise SystemExit(1)
-    return seconds
-
-
 def _collect_once(history_dir, now, sleep):
     api_key = os.environ.get("AMBIENT_API_KEY", "")
     application_key = os.environ.get("AMBIENT_APPLICATION_KEY", "")
@@ -254,22 +241,33 @@ def _collect_once(history_dir, now, sleep):
     collect(history_dir, client, mac, now, sleep)
 
 
-def loop_collect(collect_once, interval, sleep):
-    """Repeat until Ctrl-C. A failed pass waits out the same interval."""
+def loop_collect(collect_once, interval_seconds, sleep):
+    """Repeat until Ctrl-C. The interval is read again after each pass."""
     while True:
+        failed = None
         try:
             collect_once()
         except SystemExit as exc:
             if exc.code in (0, None):
                 return
-            LOG.error(f"collect failed ({exc.code}); retrying in {interval}s")
-        sleep(interval)
+            failed = exc
+        try:
+            seconds = interval_seconds()
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            LOG.error("weather_history_interval must be a non-negative integer")
+            raise SystemExit(1) from exc
+        if failed is not None:
+            LOG.error(f"collect failed ({failed.code}); retrying in {seconds}s")
+        sleep(seconds)
 
 
 def run(history_dir, now=utc_now, sleep=time.sleep):
     load_dotenv(DOTENV)
-    interval = history_interval(os.environ.get("WEATHER_HISTORY_INTERVAL"))
-    loop_collect(lambda: _collect_once(history_dir, now, sleep), interval, sleep)
+    loop_collect(
+        lambda: _collect_once(history_dir, now, sleep),
+        weather_history_interval,
+        sleep,
+    )
 
 
 class _FakeClient:
@@ -325,6 +323,8 @@ def self_check():
     root = Path(__file__).resolve().parents[2]
     assert DEFAULT_AMBIENT == root / "data" / "historical"
     assert DOTENV == root / ".env"
+    assert (root / "src" / "config" / "app_config.json").is_file()
+    assert not (root / "src" / "config" / "weather_config.yml").exists()
 
     slept = []
 
@@ -443,20 +443,39 @@ def self_check():
 
     assert slept and all(seconds == 1 for seconds in slept)
 
-    assert history_interval(None) == DEFAULT_INTERVAL
-    assert history_interval("") == DEFAULT_INTERVAL
-    assert history_interval("   ") == DEFAULT_INTERVAL
-    assert history_interval("0") == 0
-    for bad in ("-1", "nope", "1.5"):
-        try:
-            history_interval(bad)
-            raise AssertionError(bad)
-        except SystemExit as exc:
-            assert exc.code == 1
+    assert weather_history_interval() == 900
+    real_app = weather_config.APP_CONFIG
+    real_text = real_app.read_text(encoding="utf-8")
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "app_config.json"
+            path.write_text(real_text, encoding="utf-8")
+            weather_config.APP_CONFIG = path
+            assert weather_history_interval() == 900
+            assert weather_config.set_weather_history_interval(0) == 0
+            assert weather_history_interval() == 0
+            for bad in (-1, 1.5, True, "12", None):
+                try:
+                    weather_config.set_weather_history_interval(bad)
+                    raise AssertionError(bad)
+                except ValueError:
+                    pass
+            assert weather_history_interval() == 0
+            path.write_text(
+                json.dumps({"weather_history_interval": "nope"}), encoding="utf-8"
+            )
+            try:
+                weather_history_interval()
+                raise AssertionError("text interval")
+            except ValueError:
+                pass
+    finally:
+        weather_config.APP_CONFIG = real_app
+    assert real_app.read_text(encoding="utf-8") == real_text
 
-    interval = DEFAULT_INTERVAL
     passes = {"n": 0}
     gaps = []
+    intervals = iter((5, 9))
 
     def collect_ok():
         passes["n"] += 1
@@ -467,19 +486,20 @@ def self_check():
         gaps.append(seconds)
 
     try:
-        loop_collect(collect_ok, interval, sleep_between)
+        loop_collect(collect_ok, lambda: next(intervals), sleep_between)
         raise AssertionError("two collects should stop")
     except KeyboardInterrupt:
         pass
     assert passes["n"] == 2
-    assert gaps == [interval]
+    assert gaps == [5]
 
     failed = {"n": 0}
     gaps = []
+    intervals = iter((4, 7))
 
     def collect_fail():
         failed["n"] += 1
-        if failed["n"] == 1:
+        if failed["n"] < 3:
             raise SystemExit(1)
         raise KeyboardInterrupt
 
@@ -487,12 +507,21 @@ def self_check():
         gaps.append(seconds)
 
     try:
-        loop_collect(collect_fail, interval, sleep_after_fail)
+        loop_collect(collect_fail, lambda: next(intervals), sleep_after_fail)
         raise AssertionError("failed collect should retry")
     except KeyboardInterrupt:
         pass
-    assert failed["n"] == 2
-    assert gaps == [interval]
+    assert failed["n"] == 3
+    assert gaps == [4, 7]
+
+    def bad_interval():
+        raise ValueError("bad")
+
+    try:
+        loop_collect(lambda: None, bad_interval, sleep_between)
+        raise AssertionError("bad interval should stop")
+    except SystemExit as exc:
+        assert exc.code == 1
 
     with tempfile.TemporaryDirectory() as directory:
         bucket = Path(directory) / "2026-10-11_12.jsonl"

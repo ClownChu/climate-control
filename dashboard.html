@@ -87,6 +87,9 @@
           <a href="/dashboard" class="px-3 py-1 rounded-md bg-slate-900 text-white" aria-current="page">Weather</a>
           <a href="/services" class="px-3 py-1 rounded-md text-slate-600 hover:bg-slate-100">Services</a>
         </nav>
+        <button type="button" id="settings-open" class="ml-auto p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg" aria-label="Settings" aria-haspopup="dialog" aria-controls="settings-dialog">
+          <i class="ph ph-gear text-xl" aria-hidden="true"></i>
+        </button>
       </div>
     </div>
   </header>
@@ -216,6 +219,7 @@
     </div>
   </main>
 
+  <script src="/settings.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
