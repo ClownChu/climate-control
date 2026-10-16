@@ -17,7 +17,7 @@ This is a component of [Kita](#about-kita). It runs two jobs under one superviso
 | Weather server | `python -m src.weather.server` | HTTP on `0.0.0.0:8099` |
 | History | `python -m src.weather.history` | Repeating Ambient history backfill |
 
-`device_id` and `routine` come from `src/config/app_config.json`. The supervisor restarts thermostat control when either value changes. Band edits do not restart it; the routine reloads its YAML on each control cycle. The supervisor also restarts the thermostat and the weather server when those processes exit. History retries failed Ambient calls inside its own loop and re-reads `weather_history_interval` after each pass. If the history process exits, it stays stopped until `run.py` is started again.
+`device_id`, `routine`, and the Sensi connection (`oauth_url`, `ws_url`, `client_id`) come from `src/config/app_config.json`. The supervisor restarts thermostat control when any of those change. Band edits do not restart it; the routine reloads its YAML on each control cycle. The supervisor also restarts the thermostat and the weather server when those processes exit. History retries failed Ambient calls inside its own loop and re-reads `weather_history_interval` after each pass. If the history process exits, it stays stopped until `run.py` is started again.
 
 Stopping the supervisor with SIGINT (Ctrl-C) stops the children. The systemd unit uses the same signal.
 
@@ -37,6 +37,7 @@ Set these in `.env`:
 | Variable | Role |
 |---|---|
 | `REFRESH_TOKEN` | Sensi refresh token. Read from `.env` only. |
+| `SENSI_FLEET_CLIENT_SECRET` | Sensi fleet client secret. Read from `.env` only. |
 | `AMBIENT_API_KEY` | Ambient Weather API key |
 | `AMBIENT_APPLICATION_KEY` | Ambient Weather application key |
 | `AMBIENT_MAC` | Optional. Selects one station when the account has several |
@@ -50,7 +51,7 @@ python3 ./run.py
 - Weather: `http://<host>:8099/dashboard`
 - Service logs: `http://<host>:8099/services`
 
-The cog in the header opens settings. **General** edits `weather_history_interval`. **Routines** edits the device id, the active routine, and each profile's bands.
+The cog in the header opens settings. **General** edits the history interval and the Sensi OAuth URL, WebSocket URL, and client id. **Routines** edits the device id, the active routine, and each profile's bands.
 
 The weather server listens on every interface, port `8099` (`src/config/app_config.json`).
 
@@ -95,7 +96,7 @@ The active profile is `routine` in `src/config/app_config.json`. `control.py` lo
 
 `/dashboard` charts station weather. **Historical** reads `data/historical` (Ambient API backfill). **Station** reads `data/station` (live uploads). The default window is the last 24 hours. The page can show charts or a table, average and median lines, and it refreshes on a timer (60 seconds until changed). A window longer than 1500 points is drawn with an even stride; a shorter window returns every stored reading.
 
-The header cog opens one settings dialog. **General** sets `weather_history_interval` (seconds, whole number, 0 or greater). The history process uses the saved value on its next pass. **Routines** lists each profile, its YAML path, and its bands. Saving bands writes that routine's YAML only. Activating a routine, or saving the device id, writes `src/config/app_config.json`. The supervisor restarts control when the device id or routine changes.
+The header cog opens one settings dialog. **General** sets `weather_history_interval` (seconds, whole number, 0 or greater) and the Sensi OAuth URL, WebSocket URL, and client id. The history process uses the saved interval on its next pass. The client secret is `SENSI_FLEET_CLIENT_SECRET` in `.env` and is not written to the config file. **Routines** lists each profile, its YAML path, and its bands. Saving bands writes that routine's YAML only. Activating a routine, saving the device id, or saving the Sensi connection writes `src/config/app_config.json`. The supervisor restarts control when the device id, routine, or Sensi connection changes.
 
 `/services` shows the tail of each logger under `data/logs`, 200 lines, polled every 2 seconds. When stderr is a terminal, the bracketed logger name is colored. Log files are plain text, one file per logger, trimmed to 256 KiB. Weather and Services share the header, including the settings cog.
 
@@ -126,6 +127,8 @@ The backfill writes the same bucket layout under `data/historical`, plus a `chec
 | `GET /services/logs` | `{ "loggers": [{ "name", "lines" }] }` |
 | `GET /config/history-interval` | `{ "weather_history_interval": 900 }` |
 | `POST /config/history-interval` | Same shape. Anything other than a non-negative integer is `400` |
+| `GET /config/sensi` | `{ "oauth_url", "ws_url", "client_id" }` |
+| `POST /config/sensi` | Same shape. A client secret in the body is `400` |
 | `GET /routines` | Catalog plus parsed YAML, used by the Routines tab |
 | `POST /routines/active` | `{ "routine": "<name>" }` writes the active routine |
 | `POST /routines/device` | `{ "device_id": "<id>" }` writes the device id |

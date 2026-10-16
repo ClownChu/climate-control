@@ -42,7 +42,7 @@ if __name__ == "__main__":
         _self_check()
     else:
         configure_logging()
-        # Imported here so --self-check does not load websockets or api_config.yml.
+        # Imported here so --self-check does not load websockets.
         from src.routines.keep_temperature_in_range import KeepTemperatureInRangeRoutine
         from src.routines.keep_temperature_in_range_spring import KeepTemperatureInRangeSpringRoutine
         from src.routines.out_and_warm import OutAndWarmRoutine

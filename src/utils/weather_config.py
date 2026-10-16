@@ -20,8 +20,12 @@ def load_app_config():
     return data
 
 
+_SECRET_KEYS = {"client_secret", "CLIENT_SECRET"}
+
+
 def save_app_config(data):
-    atomic_write(APP_CONFIG, json.dumps(data, indent=2) + "\n")
+    clean = {key: value for key, value in data.items() if key not in _SECRET_KEYS}
+    atomic_write(APP_CONFIG, json.dumps(clean, indent=2) + "\n")
 
 
 def update_app_config(changes):
@@ -43,6 +47,12 @@ def weather_history_interval():
     return value
 
 
+def _required_text(value, name):
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(name + " is required")
+    return value.strip()
+
+
 def control_identity():
     """Device id and routine the control process was configured to run."""
     data = load_app_config()
@@ -51,6 +61,33 @@ def control_identity():
     if not isinstance(device_id, str) or not isinstance(routine, str):
         raise ValueError("device_id and routine are required")
     return device_id.strip(), routine.strip()
+
+
+def sensi_settings():
+    """Sensi connection values that are safe to store. The client secret is not here."""
+    data = load_app_config()
+    return {
+        "oauth_url": _required_text(data.get("oauth_url"), "oauth_url"),
+        "ws_url": _required_text(data.get("ws_url"), "ws_url"),
+        "client_id": _required_text(data.get("client_id"), "client_id"),
+    }
+
+
+def set_sensi_settings(oauth_url, ws_url, client_id):
+    cleaned = {
+        "oauth_url": _required_text(oauth_url, "oauth_url"),
+        "ws_url": _required_text(ws_url, "ws_url"),
+        "client_id": _required_text(client_id, "client_id"),
+    }
+    update_app_config(cleaned)
+    return cleaned
+
+
+def control_fingerprint():
+    """Values that should restart thermostat control when they change."""
+    device_id, routine = control_identity()
+    sensi = sensi_settings()
+    return (device_id, routine, sensi["oauth_url"], sensi["ws_url"], sensi["client_id"])
 
 
 def set_weather_history_interval(value):

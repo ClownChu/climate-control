@@ -7,14 +7,10 @@ import asyncio
 import websockets
 import re
 import os
-import yaml
+
+from src.utils.weather_config import sensi_settings
 
 LOG = logging.getLogger(__name__)
-
-file_path = os.path.dirname(os.path.abspath(__file__))
-
-with open(file_path + '/../config/api_config.yml') as stream:
-    CONFIG = yaml.safe_load(stream)
 
 class SensiApi:
     def __init__(self, refresh_token):
@@ -22,22 +18,29 @@ class SensiApi:
         self.status_code = 500
         self.access_token = None
         self.refresh_token = refresh_token
-        self.client_secret = os.getenv('SENS_CLIENT_SECRET', CONFIG['CLIENT_SECRET'])
         self.expires_at = None
         self._websocket = None
+
+    def _fleet(self):
+        settings = sensi_settings()
+        secret = os.getenv("SENSI_FLEET_CLIENT_SECRET", "").strip()
+        if not secret:
+            raise ValueError("SENSI_FLEET_CLIENT_SECRET is required")
+        return settings, secret
 
     def request_tokens(self):
         if not self.refresh_token:
             raise ValueError("Refresh token not set. Pass it as a run parameter or set REFRESH_TOKEN in .env.")
 
+        settings, secret = self._fleet()
         data = {
             "refresh_token": self.refresh_token,
-            "client_id": CONFIG['CLIENT_ID'],
-            "client_secret": self.client_secret,
+            "client_id": settings["client_id"],
+            "client_secret": secret,
             "grant_type": "refresh_token"
         }
         try:
-            response = requests.post(CONFIG['OAUTH_URL'], data=data, headers={'rcs': CONFIG['CLIENT_ID'], 'rcf': '1'})
+            response = requests.post(settings["oauth_url"], data=data, headers={'rcs': settings["client_id"], 'rcf': '1'})
             response.raise_for_status()
             json_resp = response.json()
             self.access_token = json_resp.get("access_token")
@@ -52,8 +55,9 @@ class SensiApi:
 
     async def _connect(self, callback):
         headers = {"Authorization": f"Bearer {self.access_token}"}
+        settings, _secret = self._fleet()
         try:
-            async with websockets.connect(CONFIG['WS_URL'], extra_headers=headers, ping_interval=30, ping_timeout=60) as websocket:
+            async with websockets.connect(settings["ws_url"], extra_headers=headers, ping_interval=30, ping_timeout=60) as websocket:
                 self._websocket = websocket
                 asyncio.create_task(self._keep_alive())
                 while True:

@@ -3,7 +3,7 @@ import subprocess
 import sys
 import time
 
-from src.utils.weather_config import control_identity
+from src.utils.weather_config import control_fingerprint
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 POLL_SECONDS = 1
@@ -40,7 +40,7 @@ def restart_exited(children, specs, popen):
 
 
 def control_changed(child, started, current):
-    """True when a live control child was started with another device or routine."""
+    """True when a live control child was started with different connection settings."""
     if child is None or started is None or current is None:
         return False
     if child.poll() is not None:
@@ -57,7 +57,7 @@ def stop_child(child):
 
 def read_control_identity():
     try:
-        return control_identity()
+        return control_fingerprint()
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -171,10 +171,15 @@ def self_check():
         stop_child(same)
     assert same.stops == 0
 
-    assert read_control_identity() == (
+    identity = read_control_identity()
+    assert identity[:2] == (
         "36-6f-92-ff-fe-0d-6c-d1",
         "keep_temperature_in_range",
     )
+    assert identity[2].startswith("https://")
+    assert identity[3].startswith("wss://")
+    assert identity[4] == "fleet"
+    assert "client_secret" not in identity
     print("self-check ok")
 
 

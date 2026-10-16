@@ -296,6 +296,33 @@ async function loadInterval() {
   intervalSeconds.value = String(body.weather_history_interval);
 }
 
+let oauthUrl;
+let wsUrl;
+let clientId;
+let fleetError;
+
+function textInput(id, value) {
+  const input = document.createElement("input");
+  input.id = id;
+  input.type = "text";
+  input.required = true;
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.value = value || "";
+  input.className = "px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none font-mono";
+  return input;
+}
+
+async function loadFleet() {
+  fleetError.hidden = true;
+  const response = await fetch("/config/sensi", {headers: {Accept: "application/json"}});
+  if (!response.ok) throw new Error("Could not load Sensi settings (" + response.status + ")");
+  const body = await response.json();
+  oauthUrl.value = body.oauth_url || "";
+  wsUrl.value = body.ws_url || "";
+  clientId.value = body.client_id || "";
+}
+
 function tabClass(selected) {
   return "px-3 py-1 text-sm font-medium rounded-md " + (selected
     ? "bg-white shadow-sm text-slate-900"
@@ -397,6 +424,77 @@ function buildDialog() {
   saveInterval.textContent = "Save";
   saveRow.append(saveInterval);
   form.append(hint, label, intervalError, saveRow);
+  const fleet = document.createElement("form");
+  fleet.id = "fleet-form";
+  fleet.noValidate = true;
+  fleet.className = "mt-8 flex flex-col gap-4 max-w-3xl";
+  const fleetTitle = document.createElement("h3");
+  fleetTitle.className = "text-sm font-semibold text-slate-900";
+  fleetTitle.textContent = "Sensi connection";
+  const fleetHint = document.createElement("p");
+  fleetHint.className = "text-sm text-slate-500";
+  fleetHint.textContent = "Saving these restarts thermostat control. The client secret stays in SENSI_FLEET_CLIENT_SECRET and is not stored here.";
+  function labeled(text, control) {
+    const wrap = document.createElement("label");
+    wrap.className = "flex flex-col gap-1 text-sm font-medium text-slate-700";
+    wrap.htmlFor = control.id;
+    wrap.append(text, control);
+    return wrap;
+  }
+  oauthUrl = textInput("oauth-url");
+  wsUrl = document.createElement("textarea");
+  wsUrl.id = "ws-url";
+  wsUrl.required = true;
+  wsUrl.rows = 4;
+  wsUrl.spellcheck = false;
+  wsUrl.className = "px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none font-mono";
+  clientId = textInput("client-id");
+  fleetError = document.createElement("p");
+  fleetError.id = "fleet-error";
+  fleetError.className = "text-sm font-medium text-red-700";
+  fleetError.hidden = true;
+  const fleetSave = document.createElement("button");
+  fleetSave.type = "submit";
+  fleetSave.className = "self-start px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800";
+  fleetSave.textContent = "Save connection";
+  fleet.append(
+    fleetTitle,
+    fleetHint,
+    labeled("OAuth URL", oauthUrl),
+    labeled("WebSocket URL", wsUrl),
+    labeled("Client id", clientId),
+    fleetError,
+    fleetSave
+  );
+  fleet.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    fleetError.hidden = true;
+    const payload = {
+      oauth_url: oauthUrl.value.trim(),
+      ws_url: wsUrl.value.trim(),
+      client_id: clientId.value.trim()
+    };
+    if (!payload.oauth_url || !payload.ws_url || !payload.client_id) {
+      fleetError.hidden = false;
+      fleetError.textContent = "OAuth URL, WebSocket URL, and client id are required.";
+      return;
+    }
+    try {
+      const response = await fetch("/config/sensi", {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) throw new Error("Save failed (" + response.status + ").");
+      const body = await response.json();
+      if (body.oauth_url !== payload.oauth_url || body.ws_url !== payload.ws_url || body.client_id !== payload.client_id) {
+        throw new Error("Save did not keep those connection settings.");
+      }
+    } catch (error) {
+      fleetError.hidden = false;
+      fleetError.textContent = error.message || "Save failed.";
+    }
+  });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     intervalError.hidden = true;
@@ -418,7 +516,7 @@ function buildDialog() {
       showIntervalError(error.message || "Save failed.");
     }
   });
-  generalPanel.append(form);
+  generalPanel.append(form, fleet);
 
   routinesPanel = document.createElement("div");
   routinesPanel.id = "settings-panel-routines";
@@ -502,6 +600,10 @@ if (settingsOpen) {
     selectTab("general");
     dialog.showModal();
     loadInterval().catch((error) => showIntervalError(error.message || "Could not load the interval."));
+    loadFleet().catch((error) => {
+      fleetError.hidden = false;
+      fleetError.textContent = error.message || "Could not load Sensi settings.";
+    });
   });
 }
 })();

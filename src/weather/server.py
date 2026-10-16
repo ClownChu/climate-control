@@ -28,8 +28,10 @@ from src.utils.weather_config import (
     DEFAULT_HISTORY,
     DEFAULT_PORT,
     control_identity,
+    sensi_settings,
     set_device_id,
     set_routine,
+    set_sensi_settings,
     set_weather_history_interval,
     weather_history_interval,
 )
@@ -259,6 +261,23 @@ def history_interval_post(data):
     return 200, {"weather_history_interval": value}
 
 
+def sensi_get():
+    try:
+        return 200, sensi_settings()
+    except (OSError, ValueError, KeyError, TypeError):
+        return 500, {"ok": False}
+
+
+def sensi_post(data):
+    if not isinstance(data, dict) or "client_secret" in data or "CLIENT_SECRET" in data:
+        return 400, {"ok": False}
+    try:
+        saved = set_sensi_settings(data.get("oauth_url"), data.get("ws_url"), data.get("client_id"))
+    except ValueError:
+        return 400, {"ok": False}
+    return 200, saved
+
+
 def routines_get():
     try:
         device_id, routine = control_identity()
@@ -326,6 +345,10 @@ class WeatherHandler(BaseHTTPRequestHandler):
             status, payload = history_interval_get()
             self._reply(status, payload)
             return
+        if split.path == "/config/sensi":
+            status, payload = sensi_get()
+            self._reply(status, payload)
+            return
         if split.path in ("/data/report", "/data/report/"):
             status, payload = ingest_reading(self.history_dir, split.query)
         elif split.path == "/weather/latest":
@@ -356,6 +379,8 @@ class WeatherHandler(BaseHTTPRequestHandler):
         data = json_dict(self._read_body())
         if split.path == "/config/history-interval":
             status, payload = history_interval_post(data)
+        elif split.path == "/config/sensi":
+            status, payload = sensi_post(data)
         elif split.path == "/routines/active":
             status, payload = routines_active_post(data)
         elif split.path == "/routines/device":
@@ -682,6 +707,8 @@ def self_check():
     assert b"General" in settings_script
     assert b"Routines" in settings_script
     assert b"/config/history-interval" in settings_script
+    assert b"/config/sensi" in settings_script
+    assert b"SENSI_FLEET_CLIENT_SECRET" in settings_script
     assert b"/routines/active" in settings_script
     assert b"/routines/device" in settings_script
     assert b"PUT" in settings_script
@@ -750,6 +777,22 @@ def self_check():
             assert code == 404
             code, _body = dispatch("/config/history-interval", "POST", b"")
             assert code == 400
+            status, payload = sensi_get()
+            assert status == 200
+            assert payload["client_id"] == "fleet"
+            assert payload["oauth_url"].startswith("https://")
+            assert payload["ws_url"].startswith("wss://")
+            assert "client_secret" not in payload
+            assert sensi_post({"oauth_url": "", "ws_url": payload["ws_url"], "client_id": "fleet"})[0] == 400
+            leaked = {
+                "oauth_url": payload["oauth_url"],
+                "ws_url": payload["ws_url"],
+                "client_id": "fleet",
+                "client_secret": "nope",
+            }
+            assert sensi_post(leaked)[0] == 400
+            assert "nope" not in config_path.read_text(encoding="utf-8")
+            assert "client_secret" not in config_path.read_text(encoding="utf-8")
             huge = WeatherHandler.__new__(WeatherHandler)
             huge.path = "/config/history-interval"
             huge.headers = {"Content-Length": "999999"}
