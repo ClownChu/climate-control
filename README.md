@@ -9,7 +9,7 @@ This is a component of [Kita](#about-kita). It runs two jobs under one superviso
 
 ## What is running
 
-`run.py` is the supervisor. It starts three processes in the repo directory and stays up:
+`run.py` is the supervisor. It only runs when its parent process is `uv`. It starts three processes in the repo directory and stays up:
 
 | Child | Command | Job |
 |---|---|---|
@@ -26,9 +26,8 @@ Stopping the supervisor with SIGINT (Ctrl-C) stops the children. The systemd uni
 ## Getting started
 
 ```bash
-python3 -m venv ./.venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv venv
+uv pip install -r requirements.txt
 cp .env.exemple .env
 ```
 
@@ -45,8 +44,10 @@ Set these in `.env`:
 Foreground:
 
 ```bash
-python3 ./run.py
+uv run --offline --no-project run.py
 ```
+
+`--offline` keeps `uv` off the network. `--no-project` uses the existing `.venv` and does not resolve or download packages. `run.py` exits unless `uv` is its parent.
 
 - Weather: `http://<host>:8099/dashboard`
 - Service logs: `http://<host>:8099/services`
@@ -59,7 +60,7 @@ The weather server listens on every interface, port `8099` (`src/config/app_conf
 
 ## Service
 
-This machine runs `climate-control.service`. The unit starts the repo virtualenv as `run.py` with no arguments. The device id and routine are `device_id` and `routine` in `src/config/app_config.json`. The refresh token is read from `.env` (`REFRESH_TOKEN`). The working directory is the repo, so `.env`, `data/`, and the config files resolve there.
+This machine runs `climate-control.service`. The unit starts `/home/vitor-de-souza/.local/bin/uv run --offline --no-project run.py`. The absolute path is required because systemd's default `PATH` does not include `~/.local/bin`. The device id and routine are `device_id` and `routine` in `src/config/app_config.json`. The refresh token is read from `.env` (`REFRESH_TOKEN`). The working directory is the repo, so `.env`, `data/`, and the config files resolve there. The unit does not use `EnvironmentFile`: systemd would keep quote characters, and `envfile.py` is the parser the app already uses.
 
 The unit waits for `network-online.target`, restarts on failure after 5 seconds, sets `PYTHONUNBUFFERED=1`, and stops with `SIGINT` (`TimeoutStopSec=15`) so the supervisor can shut the children down.
 
@@ -103,9 +104,9 @@ The header cog opens one settings dialog. **General** sets `weather_history_inte
 Either child can run on its own:
 
 ```bash
-python3 -m src.weather.server [port] [station-dir]
-python3 -m src.weather.history [historical-dir]
-python3 -m src.weather.recalc [station-dir]
+uv run --offline --no-project python -m src.weather.server [port] [station-dir]
+uv run --offline --no-project python -m src.weather.history [historical-dir]
+uv run --offline --no-project python -m src.weather.recalc [station-dir]
 ```
 
 `recalc` rewrites station buckets in place with dew point, feels like, and last rain. The default directory is `data/station`.
@@ -141,12 +142,12 @@ The backfill writes the same bucket layout under `data/historical`, plus a `chec
 These exercise the supervisor, the collectors, and logging without calling Sensi or Ambient:
 
 ```bash
-python3 run.py --self-check
-python3 control.py --self-check
-python3 -m src.weather.server --self-check
-python3 -m src.weather.history --self-check
-python3 -m src.weather.recalc --self-check
-python3 -m src.utils.log
+uv run --offline --no-project run.py --self-check
+uv run --offline --no-project control.py --self-check
+uv run --offline --no-project python -m src.weather.server --self-check
+uv run --offline --no-project python -m src.weather.history --self-check
+uv run --offline --no-project python -m src.weather.recalc --self-check
+uv run --offline --no-project python -m src.utils.log
 ```
 
 ---

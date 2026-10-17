@@ -8,11 +8,21 @@ from src.utils.weather_config import control_fingerprint
 HERE = os.path.dirname(os.path.abspath(__file__))
 POLL_SECONDS = 1
 STOP_WAIT_SECONDS = 5
-USAGE = "usage: python3 ./run.py"
+USAGE = "usage: uv run --no-project run.py"
 # ponytail: history retries inside src.weather.history, so a dead history
 # process is left down. Restarting it here would loop every second on a bad
 # weather_history_interval. Upgrade: restart history only when a signal killed it.
 RESTART = {"control", "server"}
+
+
+def launched_by_uv(comm=None):
+    if comm is None:
+        try:
+            with open("/proc/%s/comm" % os.getppid()) as stream:
+                comm = stream.read().strip()
+        except OSError:
+            return False
+    return comm == "uv"
 
 
 def commands(argv, executable):
@@ -103,6 +113,10 @@ def supervise(specs, popen=subprocess.Popen, sleep=time.sleep, identity=None):
 
 
 def self_check():
+    assert launched_by_uv("uv")
+    assert not launched_by_uv("python")
+    assert launched_by_uv()
+
     exe = sys.executable
     specs = commands(["run.py"], exe)
     assert specs == [
@@ -184,6 +198,9 @@ def self_check():
 
 
 def main(argv):
+    if not launched_by_uv():
+        print(USAGE, file=sys.stderr)
+        return 2
     if argv[1:] == ["--self-check"]:
         self_check()
         return 0

@@ -13,7 +13,7 @@ Type=simple
 User=vitor-de-souza
 Group=vitor-de-souza
 WorkingDirectory=/home/vitor-de-souza/dev/test-agent/repos/climate-control
-ExecStart=/home/vitor-de-souza/dev/test-agent/repos/climate-control/.venv/bin/python run.py
+ExecStart=/home/vitor-de-souza/.local/bin/uv run --no-project run.py
 Environment=PYTHONUNBUFFERED=1
 Restart=on-failure
 RestartSec=5
